@@ -1,0 +1,156 @@
+# Memecoin Intelligence Terminal — stack local
+#
+# SEGURIDAD: el servicio `signer` NO publica puerto al host. Solo es alcanzable desde
+# la red interna `mit-internal`, a la que `web` no pertenece.  Ver SECURITY.md 2.
+
+name: mit
+
+services:
+  # ---------------------------------------------------------------------------
+  # Persistencia
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: timescale/timescaledb:2.17.2-pg16
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-mit}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-mit}
+      POSTGRES_DB: ${POSTGRES_DB:-mit}
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mit} -d ${POSTGRES_DB:-mit}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [mit-internal]
+
+  redis:
+    image: redis:7.4-alpine
+    command: ["redis-server", "--appendonly", "yes"]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - redisdata:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [mit-internal]
+
+  # ---------------------------------------------------------------------------
+  # Aplicación
+  # ---------------------------------------------------------------------------
+  api:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+    env_file: [.env]
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [mit-internal, mit-public]
+    restart: unless-stopped
+
+  worker:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/worker.Dockerfile
+    env_file: [.env]
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    networks: [mit-internal]
+    restart: unless-stopped
+
+  # AISLADO: sin `ports`, solo en la red interna. El backend le habla por nombre de servicio.
+  # Arranca en SIGNER_MODE=disabled y no hace nada hasta completar LIVE_TRADING_CHECKLIST.md.
+  signer:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/signer.Dockerfile
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      SIGNER_MODE: ${SIGNER_MODE:-disabled}
+      SIGNER_SHARED_SECRET: ${SIGNER_SHARED_SECRET:-}
+      SIGNER_MAX_DAILY_SOL: ${SIGNER_MAX_DAILY_SOL:-0}
+      SIGNER_PROGRAM_ALLOWLIST: ${SIGNER_PROGRAM_ALLOWLIST:-}
+      ENCRYPTED_KEY_PATH: /run/secrets/trading_key.enc
+      KEY_ENCRYPTION_PASSWORD_FILE: /run/secrets/key_password
+    # Los secretos se montan solo aquí. Ningún otro servicio los ve.
+    # Descomentar al llegar a Fase 6, con los archivos ya creados fuera del repo.
+    # secrets:
+    #   - trading_key
+    #   - key_password
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [mit-internal]
+    restart: unless-stopped
+
+  web:
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "127.0.0.1:3000:3000"
+    depends_on: [api]
+    networks: [mit-public]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------------
+  # Observabilidad
+  # ---------------------------------------------------------------------------
+  prometheus:
+    image: prom/prometheus:v3.0.1
+    volumes:
+      - ./infrastructure/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - promdata:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks: [mit-internal]
+
+  grafana:
+    image: grafana/grafana:11.4.0
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infrastructure/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infrastructure/grafana/dashboards:/var/lib/grafana/dashboards:ro
+      - grafanadata:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3001:3000"
+    depends_on: [prometheus]
+    networks: [mit-internal]
+
+networks:
+  mit-internal:
+    driver: bridge
+  mit-public:
+    driver: bridge
+
+volumes:
+  pgdata:
+  redisdata:
+  promdata:
+  grafanadata:
+
+# secrets:
+#   trading_key:
+#     file: ../secrets/trading_key.enc     # FUERA del repositorio
+#   key_password:
+#     file: ../secrets/key_password
