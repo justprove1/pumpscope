@@ -1,0 +1,23 @@
+{
+  "name": "memecoin-intelligence-terminal",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Monorepo raiz. El frontend vive en apps/web (Next.js + TypeScript estricto).",
+  "workspaces": [
+    "apps/web"
+  ],
+  "engines": {
+    "node": ">=20.11"
+  },
+  "scripts": {
+    "dev": "npm run dev --workspace apps/web",
+    "build": "npm run build --workspace apps/web",
+    "lint": "npm run lint --workspace apps/web",
+    "typecheck": "npm run typecheck --workspace apps/web",
+    "test": "npm run test --workspace apps/web"
+  },
+  "devDependencies": {
+    "@types/node": "^22.9.0",
+    "typescript": "^5.6.3"
+  }
+}

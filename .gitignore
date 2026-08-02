@@ -1,0 +1,43 @@
+# --- Secretos: NUNCA se commitea nada de esto (CLAUDE.md 1) ------------------
+.env
+.env.*
+!.env.example
+*.enc
+*.key
+*.pem
+secrets/
+/run/secrets/
+
+# --- Python ------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# --- Node / Next -------------------------------------------------------------
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+
+# --- Datos locales -----------------------------------------------------------
+data/
+*.duckdb
+*.parquet
+replay-cache/
+
+# --- Prompts de fase ---------------------------------------------------------
+# INSTRUCCIONES.md: los FASE-*.md NO van en el repo, son prompts que se pegan a mano.
+prompts-fase/
+
+# --- SO / editor -------------------------------------------------------------
+.DS_Store
+.idea/

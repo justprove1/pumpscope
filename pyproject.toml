@@ -1,0 +1,191 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "memecoin-intelligence-terminal"
+version = "0.1.0"
+description = "Plataforma de deteccion, analisis, simulacion y ejecucion para memecoins de Pump.fun / PumpSwap"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { text = "Proprietary" }
+
+# Dependencias segun SPEC.md 3.
+#
+# El nucleo contiene SOLO lo que hace falta para detectar, persistir y servir (Fases 1-4).
+# El computo pesado (numpy/polars/sklearn/lightgbm/optuna/shap) vive en el extra `ml` y no
+# se instala hasta la Fase 5: son cientos de MB y compilacion que no aportan nada a la
+# deteccion de tokens, y que romperian el arranque del proyecto por un motivo ajeno a el.
+dependencies = [
+  # --- Web / API ---
+  "fastapi>=0.115",
+  "uvicorn[standard]>=0.32",
+  "websockets>=13.0",
+  "pydantic>=2.9",
+  "pydantic-settings>=2.6",
+  # --- Persistencia ---
+  "sqlalchemy>=2.0",
+  "alembic>=1.14",
+  "asyncpg>=0.30",
+  "psycopg[binary]>=3.2",
+  "redis>=5.2",
+  "arq>=0.26",
+  # --- Solana ---
+  "solders>=0.21",
+  "solana>=0.35",
+  "based58>=0.1",
+  # --- Red / resiliencia ---
+  "httpx>=0.27",
+  "tenacity>=9.0",
+  "aiolimiter>=1.1",
+  # --- Observabilidad ---
+  "structlog>=24.4",
+  "orjson>=3.10",
+  "prometheus-client>=0.21",
+  "opentelemetry-api>=1.28",
+  "opentelemetry-sdk>=1.28",
+  "opentelemetry-instrumentation-fastapi>=0.49b0",
+  "sentry-sdk>=2.18",
+  # --- Cripto local (signer) ---
+  "pynacl>=1.5",
+]
+
+[project.optional-dependencies]
+# Fase 2 en adelante: feature engineering.
+data = [
+  "polars>=1.12",
+  "numpy>=2.1",
+  "pandas>=2.2",
+]
+# Fase 5: modelos. `pip install -e ".[ml]"` cuando toque, no antes.
+ml = [
+  "memecoin-intelligence-terminal[data]",
+  "scikit-learn>=1.5",
+  "lightgbm>=4.5",
+  "optuna>=4.0",
+  "shap>=0.46",
+]
+dev = [
+  "ruff>=0.16",
+  "mypy>=1.13",
+  "pytest>=8.3",
+  "pytest-asyncio>=0.24",
+  "pytest-cov>=6.0",
+  "types-requests",
+]
+
+# ---------------------------------------------------------------------------
+# Monorepo: un unico pyproject en la raiz (SPEC.md 27) que empaqueta todos los
+# modulos de /packages y /apps. Los directorios usan kebab-case segun SPEC.md 26;
+# el modulo Python importable dentro de cada uno usa el prefijo `mit_`, porque
+# `data-models` no es un identificador valido de Python.
+# ---------------------------------------------------------------------------
+[tool.hatch.build.targets.wheel]
+packages = [
+  "packages/shared/mit_shared",
+  "packages/data-models/mit_data_models",
+  "packages/observability/mit_observability",
+  "packages/solana/mit_solana",
+  "packages/pumpfun/mit_pumpfun",
+  "packages/providers/mit_providers",
+  "packages/features/mit_features",
+  "packages/narratives/mit_narratives",
+  "packages/strategies/mit_strategies",
+  "packages/risk/mit_risk",
+  "packages/execution/mit_execution",
+  "packages/simulation/mit_simulation",
+  "packages/ml/mit_ml",
+  "packages/notifications/mit_notifications",
+  "apps/api/mit_api",
+  "apps/worker/mit_worker",
+  "apps/signer/mit_signer",
+]
+
+# ---------------------------------------------------------------------------
+# Lint
+# ---------------------------------------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["packages", "apps", "tests"]
+extend-exclude = [
+  "infrastructure/migrations/versions",
+  "ps",
+  "pumpscope.py",
+  "serve.py",
+]
+
+[tool.ruff.lint]
+select = [
+  "E", "W",    # pycodestyle
+  "F",         # pyflakes
+  "I",         # isort
+  "N",         # pep8-naming
+  "UP",        # pyupgrade
+  "B",         # bugbear
+  "A",         # builtins shadowing
+  "C4",        # comprehensions
+  "SIM",       # simplify
+  "PTH",       # pathlib
+  "ASYNC",     # async antipatterns
+  "S",         # bandit (seguridad)
+  "TID",       # imports relativos
+  "ANN",       # anotaciones obligatorias
+  "RUF",
+]
+ignore = [
+  "ANN401",  # Any explicito permitido donde se justifica en el docstring
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101", "ANN"]           # assert y firmas sin anotar en tests
+"infrastructure/migrations/env.py" = ["ANN", "E402"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+# ---------------------------------------------------------------------------
+# Type check (CLAUDE.md 2: typing estricto, sin `any` sin justificar)
+# ---------------------------------------------------------------------------
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+warn_no_return = true
+show_error_codes = true
+pretty = true
+files = ["packages", "apps", "tests"]
+exclude = "(^|/)(ps|infrastructure/migrations/versions)/"
+mypy_path = [
+  "packages/shared", "packages/data-models", "packages/observability",
+  "packages/solana", "packages/pumpfun", "packages/providers",
+  "packages/features", "packages/narratives", "packages/strategies",
+  "packages/risk", "packages/execution", "packages/simulation",
+  "packages/ml", "packages/notifications",
+  "apps/api", "apps/worker", "apps/signer",
+]
+
+# Con el entorno completo instalado (make install-dev) NO hay excepciones: pydantic,
+# sqlalchemy y alembic traen `py.typed`, asi que el modo strict es strict de verdad.
+# `solana` es la unica libreria del stack que no publica tipos.
+[[tool.mypy.overrides]]
+module = ["solana.*"]
+ignore_missing_imports = true
+
+# ---------------------------------------------------------------------------
+# Tests
+# ---------------------------------------------------------------------------
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+asyncio_mode = "auto"
+addopts = "-q --strict-markers --strict-config"
+markers = [
+  "integration: requiere Postgres/Redis levantados",
+  "e2e: requiere el stack completo",
+  "live: NUNCA se ejecuta en CI; toca red real",
+]
+
+[tool.coverage.run]
+branch = true
+source = ["packages", "apps"]

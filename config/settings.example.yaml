@@ -1,0 +1,67 @@
+# Configuracion de ejemplo. Copiar a config/settings.yaml.
+# Los SECRETOS no van aqui: van en .env. Este archivo es versionable.
+
+app:
+  mode: DRY_RUN          # DRY_RUN | PAPER | BACKTEST | LIVE  (LIVE exige el checklist)
+  timezone: UTC
+
+detection:
+  target_latency_ms: 1000
+  backfill_on_start: true
+  backfill_minutes: 30
+
+scoring:
+  mode: heuristic        # heuristic | model
+  # Pesos orientativos de SPEC.md 11. NO son una estrategia validada:
+  # deben optimizarse en simulacion antes de tomarse en serio.
+  weights:
+    narrative: 0.18
+    momentum: 0.15
+    liquidity: 0.12
+    holder_quality: 0.10
+    distribution: 0.10
+    creator: 0.08
+    whale: 0.07
+    social_authenticity: 0.08
+    exit_liquidity: 0.07
+    data_confidence: 0.05
+
+eligibility:
+  min_data_confidence: 60
+  max_rug_risk: 35
+  max_manipulation_risk: 40
+  min_liquidity_sol: 5.0
+  max_price_impact_percent: 3.0
+  max_top10_pct_adjusted: 35.0
+  max_data_age_ms: 3000
+  max_source_divergence_pct: 5.0
+
+risk:
+  risk_per_trade_percent: 0.5
+  max_exposure_per_token_percent: 3.0
+  max_daily_loss_percent: 3.0
+  max_drawdown_percent: 10.0
+  max_consecutive_losses: 4
+  min_sol_fee_reserve: 0.02
+  cooldown_after_loss_minutes: 15
+  cooldown_per_token_hours: 4
+
+exits:
+  # A OPTIMIZAR en simulacion. No asumir que este escalado gana.
+  partial_take_profit:
+    - { at_pct: 20, sell_pct: 25 }
+    - { at_pct: 40, sell_pct: 25 }
+    - { at_pct: 80, sell_pct: 25 }
+  trailing_stop_pct: 25
+  time_stop_minutes: 60
+
+providers:
+  # `enabled: false` es el estado correcto de todo proveedor sin credencial verificada.
+  solana_rpc:    { enabled: true,  timeout_seconds: 3.0, rate_limit_rps: 10 }
+  helius_ws:     { enabled: false, timeout_seconds: 5.0 }
+  jupiter:       { enabled: false, timeout_seconds: 3.0, rate_limit_rps: 5 }
+  dexscreener:   { enabled: false, timeout_seconds: 5.0, rate_limit_rps: 1 }
+  geckoterminal: { enabled: false, timeout_seconds: 5.0, rate_limit_rps: 1 }
+  x:             { enabled: false }
+  reddit:        { enabled: false }
+  rugcheck:      { enabled: false }
