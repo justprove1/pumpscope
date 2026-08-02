@@ -1,0 +1,21 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Arrancar servidor pumpscope",
+      "type": "shell",
+      "command": "python3 serve.py --puerto 8787",
+      "options": { "cwd": "${workspaceFolder}" },
+      "isBackground": true,
+      "presentation": { "reveal": "always", "panel": "dedicated" },
+      "problemMatcher": []
+    },
+    {
+      "label": "Parar servidor pumpscope",
+      "type": "shell",
+      "command": "pkill -f 'serve.py --puerto 8787' || echo 'no habia ninguno corriendo'",
+      "presentation": { "reveal": "silent" },
+      "problemMatcher": []
+    }
+  ]
+}

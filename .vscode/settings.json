@@ -1,0 +1,12 @@
+{
+  "python.defaultInterpreterPath": "/usr/bin/python3",
+  "python.analysis.extraPaths": ["${workspaceFolder}"],
+  "files.exclude": {
+    "**/__pycache__": true,
+    "**/*.pyc": true
+  },
+  "[python]": {
+    "editor.rulers": [88],
+    "editor.tabSize": 4
+  }
+}

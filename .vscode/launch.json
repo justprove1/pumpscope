@@ -1,0 +1,43 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Servidor web (F5)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/serve.py",
+      "args": ["--puerto", "8787"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Analizar un token (pide el link)",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/pumpscope.py",
+      "args": ["${input:mint}", "--why"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    },
+    {
+      "name": "Analizar en JSON",
+      "type": "debugpy",
+      "request": "launch",
+      "program": "${workspaceFolder}/pumpscope.py",
+      "args": ["${input:mint}", "--json"],
+      "console": "integratedTerminal",
+      "cwd": "${workspaceFolder}",
+      "justMyCode": false
+    }
+  ],
+  "inputs": [
+    {
+      "id": "mint",
+      "type": "promptString",
+      "description": "Link de pump.fun o el mint",
+      "default": "https://pump.fun/coin/"
+    }
+  ]
+}
