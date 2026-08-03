@@ -47,6 +47,37 @@ DISCRIMINATOR_TRADE_EVENT: Final = anchor_event_discriminator("TradeEvent")
 
 
 @dataclass(frozen=True, slots=True)
+class TradeEvent:
+    """Una compra o venta, decodificada del log.
+
+    **Por que del log y no de la instruccion.** Se intento primero decodificar la
+    instruccion `buy`/`sell` y salieron dos errores encadenados:
+
+    1. Las operaciones reales llegan como instrucciones ANIDADAS, invocadas desde un router.
+       Recorrer solo el nivel superior devolvia cero operaciones. Silencioso.
+    2. Los argumentos de la instruccion son `max_sol_cost` y `min_sol_output`: LIMITES, no
+       lo ejecutado. Usarlos como importe habria falseado todo el analisis de flujo.
+
+    El evento trae los importes reales y, sobre todo, el `user` verdadero: cuando la
+    operacion pasa por un agregador, el pagador de la transaccion es el router, no el trader.
+    Atribuir el volumen al router destruiria la deteccion de clusters y wash trading.
+    """
+
+    mint: str
+    sol_amount: int
+    token_amount: int
+    is_buy: bool
+    user: str
+    timestamp: int
+    virtual_sol_reserves: int
+    virtual_token_reserves: int
+
+    @property
+    def side(self) -> str:
+        return "buy" if self.is_buy else "sell"
+
+
+@dataclass(frozen=True, slots=True)
 class CreateEvent:
     """Creacion de token, decodificada directamente del log.
 
@@ -128,6 +159,44 @@ def decode_create_event(raw: bytes) -> CreateEvent:
         token_total_supply=token_total_supply,
         trailing=reader.remaining,
     )
+
+
+def decode_trade_event(raw: bytes) -> TradeEvent:
+    """Decodifica un `TradeEvent`. Layout verificado contra mainnet."""
+    if raw[:8] != DISCRIMINATOR_TRADE_EVENT:
+        msg = f"discriminador {raw[:8].hex()} no es TradeEvent"
+        raise DecodeError(msg)
+
+    reader = BorshReader(raw[8:])
+
+    def u64() -> int:
+        return int.from_bytes(reader.take(8), "little")
+
+    mint = reader.pubkey()
+    sol_amount = u64()
+    token_amount = u64()
+    is_buy = reader.take(1)[0] == 1
+    user = reader.pubkey()
+    timestamp = int.from_bytes(reader.take(8), "little", signed=True)
+    return TradeEvent(
+        mint=mint,
+        sol_amount=sol_amount,
+        token_amount=token_amount,
+        is_buy=is_buy,
+        user=user,
+        timestamp=timestamp,
+        virtual_sol_reserves=u64(),
+        virtual_token_reserves=u64(),
+    )
+
+
+def find_trade_events(logs: list[str]) -> list[TradeEvent]:
+    """Todas las operaciones de unos logs. Lista vacia si no hay ninguna."""
+    events: list[TradeEvent] = []
+    for raw in iter_program_data(logs):
+        if raw[:8] == DISCRIMINATOR_TRADE_EVENT:
+            events.append(decode_trade_event(raw))
+    return events
 
 
 def find_create_event(logs: list[str]) -> CreateEvent | None:

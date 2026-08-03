@@ -34,6 +34,12 @@ from mit_pumpfun.decoder import (
     iter_instructions,
     resolve_account_keys,
 )
+from mit_pumpfun.events import (
+    TradeEvent,
+    decode_trade_event,
+    find_create_event,
+    find_trade_events,
+)
 
 __all__ = [
     "CREATE_DISCRIMINATORS",
@@ -48,9 +54,13 @@ __all__ = [
     "DecodeError",
     "ParsedInstruction",
     "TokenCreation",
+    "TradeEvent",
     "anchor_discriminator",
     "decode_create",
+    "decode_trade_event",
     "extract_token_creation",
+    "find_create_event",
+    "find_trade_events",
     "iter_instructions",
     "resolve_account_keys",
 ]

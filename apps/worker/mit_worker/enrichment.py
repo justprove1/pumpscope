@@ -21,8 +21,14 @@ from typing import Any
 
 import based58
 from mit_features.concentration import ConcentrationMetrics, concentration
-from mit_pumpfun.constants import PUMPFUN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, anchor_discriminator
+from mit_pumpfun.constants import (
+    PROTOCOL_ACCOUNTS,
+    PUMPFUN_PROGRAM_ID,
+    TOKEN_2022_PROGRAM_ID,
+    anchor_discriminator,
+)
 from mit_pumpfun.decoder import resolve_account_keys
+from mit_pumpfun.events import find_trade_events
 from mit_solana.rpc import RpcError, RpcRateLimitedError, SolanaRpc
 from mit_strategies.manipulation import TokenContext, TradeRecord, WalletInfo
 from mit_strategies.manipulation.types import Finding
@@ -56,48 +62,38 @@ class EnrichmentResult:
 
 
 def _decode_trades(transaction: dict[str, Any]) -> list[TradeRecord]:
-    """Extrae compras y ventas de una transaccion ya obtenida."""
-    keys = resolve_account_keys(transaction)
-    message = transaction.get("transaction", {}).get("message", {})
-    signers = message.get("accountKeys") or []
-    wallet = signers[0] if signers else ""
+    """Extrae operaciones de una transaccion, desde los EVENTOS del log.
+
+    No desde las instrucciones. Se intento primero por instruccion y fallo dos veces:
+
+    1. Las operaciones reales llegan ANIDADAS, invocadas desde un router. Mirar solo el
+       nivel superior devolvia cero operaciones sin dar ningun error.
+    2. Los argumentos de la instruccion son `max_sol_cost` / `min_sol_output`: LIMITES, no
+       lo ejecutado. Usarlos como importe habria falseado todo el analisis de flujo con
+       numeros que parecen razonables.
+
+    El evento trae ademas el `user` real. Cuando la operacion pasa por un agregador el
+    pagador de la transaccion es el router: atribuirle el volumen destruiria la deteccion
+    de clusters y de wash trading.
+    """
+    logs = (transaction.get("meta") or {}).get("logMessages") or []
     block_time = transaction.get("blockTime")
     when = datetime.fromtimestamp(block_time, tz=UTC) if block_time else datetime.now(UTC)
     signature = (transaction.get("transaction", {}).get("signatures") or [""])[0]
+    slot = int(transaction.get("slot", 0))
 
     trades: list[TradeRecord] = []
-    for instruction in message.get("instructions") or []:
-        index = instruction.get("programIdIndex")
-        if index is None or index >= len(keys) or keys[index] != PUMPFUN_PROGRAM_ID:
-            continue
-        try:
-            data = bytes(based58.b58decode(instruction.get("data", "").encode()))
-        except Exception:
-            # Datos ilegibles: se ignora la instruccion, no la transaccion entera. Se
-            # registra en DEBUG para poder detectar un cambio de formato del programa.
-            LOGGER.debug("instruccion no decodificable en %s", signature, exc_info=True)
-            continue
-        side = (
-            "buy"
-            if data[:8] == DISCRIMINATOR_BUY
-            else "sell"
-            if data[:8] == DISCRIMINATOR_SELL
-            else None
-        )
-        if side is None:
-            continue
-        # buy(amount, max_sol_cost) / sell(amount, min_sol_output): dos u64 tras el discriminador.
-        token_amount = int.from_bytes(data[8:16], "little") if len(data) >= 16 else 0
-        sol_amount = int.from_bytes(data[16:24], "little") if len(data) >= 24 else 0
+    for index, event in enumerate(find_trade_events(logs)):
         trades.append(
             TradeRecord(
-                signature=signature,
-                slot=int(transaction.get("slot", 0)),
+                # Varias operaciones pueden compartir firma: se desambigua por indice.
+                signature=f"{signature}:{index}" if index else signature,
+                slot=slot,
                 block_time=when,
-                wallet=wallet,
-                side=side,
-                sol_amount=sol_amount,
-                token_amount=token_amount,
+                wallet=event.user,
+                side=event.side,
+                sol_amount=event.sol_amount,
+                token_amount=event.token_amount,
             )
         )
     return trades
@@ -198,8 +194,14 @@ async def enrich(
         partial = True
         notes.append(f"historial del creador no disponible: {error}")
 
+    # Las cuentas del PROPIO protocolo no son traders y se excluyen del analisis de wallets.
+    # Sin esto, `self_trading` acusa a una cuenta de sistema de concentrar la mitad del
+    # volumen en practicamente cualquier token: es el mismo error que incluir el pool al
+    # medir concentracion, y el peor tipo de falso positivo, el que sale siempre.
+    trades = [t for t in trades if t.wallet not in PROTOCOL_ACCOUNTS]
     wallets = {
-        wallet: WalletInfo(address=wallet) for wallet in {t.wallet for t in trades} | set(holders)
+        wallet: WalletInfo(address=wallet, is_program=wallet in PROTOCOL_ACCOUNTS)
+        for wallet in {t.wallet for t in trades} | set(holders)
     }
 
     context = TokenContext(

@@ -58,3 +58,22 @@ MIN_CREATE_ACCOUNTS: Final = 6
 # proposito: hoy emite `CreateV2` y una version futura podria emitir `CreateV3`. Perder
 # creaciones en silencio es peor que capturar de mas y filtrar por discriminador despues.
 CREATE_LOG_PREFIX: Final = "Program log: Instruction: Create"
+
+
+# Cuentas del PROPIO protocolo, observadas como constantes en toda instruccion create_v2.
+# NO son traders y hay que excluirlas del analisis de wallets: si no, el detector de
+# self-trading acusa a una cuenta de sistema de concentrar la mitad del volumen. Es el
+# mismo error que incluir el pool al medir concentracion de holders, y produce el peor
+# tipo de falso positivo: uno que aparece en casi todos los tokens.
+PROTOCOL_ACCOUNTS: Final[frozenset[str]] = frozenset(
+    {
+        PUMPFUN_PROGRAM_ID,
+        MINT_AUTHORITY,
+        GLOBAL_CONFIG,
+        SYSTEM_PROGRAM_ID,
+        "MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e",
+        "13ec7XdrjF3h3YcqBTFDSReRcUFwbCnJaAQspM4j6DDJ",
+        "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s",
+        "Ce6TQqeHC9p8KetsN6JsjHK7UTZk7nasjjnr7XxXp9F1",
+    }
+)
