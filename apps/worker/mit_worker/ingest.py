@@ -97,7 +97,7 @@ class IngestService:
         # Ritmo del analisis MUY por debajo del limite del endpoint publico: la ingesta
         # tiene prioridad, y perder el WebSocket por agotar cuota analizando seria un
         # mal negocio.
-        self._rpc = SolanaRpc(limits=RpcLimits(requests_per_second=2.0))
+        self._rpc = SolanaRpc(limits=RpcLimits(requests_per_second=1.0))
         self._analysis = AnalysisPipeline(self._rpc, self._redis)
         self.metrics = IngestMetrics()
         self._stop = asyncio.Event()

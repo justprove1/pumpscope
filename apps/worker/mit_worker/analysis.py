@@ -35,7 +35,7 @@ CHANNEL_ANALYSIS = "mit:tokens.analysis"
 
 # Cola corta a proposito: si se acumula, el analisis va tan por detras que deja de ser util.
 # Mejor descartar y decirlo que servir un veredicto de hace veinte minutos.
-QUEUE_SIZE = 40
+QUEUE_SIZE = 12
 
 
 @dataclass
@@ -132,7 +132,10 @@ class AnalysisPipeline:
             name=token.event.name,
             symbol=token.event.symbol,
             uri=token.event.uri,
-            limits=EnrichmentLimits(max_transactions=6, max_creator_transactions=4),
+            # Presupuesto MINIMO: el analisis de fondo es secundario frente al visor en
+            # vivo. Con menos llamadas por token, el RPC publico no se satura y lo que el
+            # usuario mira carga sin competir.
+            limits=EnrichmentLimits(max_transactions=3, max_creator_transactions=2),
         )
         report = analyze(result.context)
         metrics = result.concentration_metrics
@@ -178,9 +181,14 @@ class AnalysisPipeline:
         )
 
     async def run(self) -> None:
-        """Bucle de consumo. Un fallo en un token no para la cola."""
+        """Bucle de consumo. Un fallo en un token no para la cola.
+
+        Con una pausa deliberada entre tokens: el analisis de fondo va despacio a proposito
+        para dejar el RPC libre al visor en vivo, que es lo que el usuario esta mirando.
+        """
         while True:
             token = await self._queue.get()
+            await asyncio.sleep(3.0)
             try:
                 verdict = await self._analyze(token)
                 self.stats.analyzed += 1

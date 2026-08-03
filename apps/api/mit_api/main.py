@@ -32,6 +32,8 @@ from mit_api.candles import (
     project_candles,
     realized_volatility_per_second,
 )
+from mit_api.livesignals import detect_pre_bounce, detect_whale, flow_metrics
+from mit_api.potential import estimate_traction
 from mit_api.projection import fetch_from_chain, project, token_snapshot
 from mit_api.queries import TokenQueries
 
@@ -287,9 +289,29 @@ async def token_live(reference: str, horizon_seconds: int = 4) -> dict[str, Any]
     snapshot = token_snapshot(curve) if curve else None
     volatility = realized_volatility_per_second(real)
 
+    traction = estimate_traction(state.events, curve)
+    _whale = detect_whale(state.events)
+    _bounce = detect_pre_bounce(state.events)
+    recommendation = _recommendation(traction, snapshot, curve, len(state.events))
     payload: dict[str, Any] = {
         "mint": mint,
         "candles": [c.as_dict() for c in real],
+        "traction": traction.as_dict(),
+        "recommendation": recommendation,
+        "whale": {
+            "present": _whale.present,
+            "direction": _whale.direction,
+            "share_of_volume": _whale.share_of_volume,
+            "sol_amount": _whale.sol_amount,
+            "detail": _whale.detail,
+        },
+        "pre_bounce": {
+            "present": _bounce.present,
+            "drop_pct": _bounce.drop_pct,
+            "recovery_pct": _bounce.recovery_pct,
+            "detail": _bounce.detail,
+        },
+        "flow": flow_metrics(state.events),
         "projected": [c.as_dict() for c in projected],
         "trades": len(state.events),
         "volatility_per_second": round(volatility, 8),
@@ -438,3 +460,57 @@ async def token_simulate(
             "fees, fallos y MEV. Es una DISTRIBUCION, no una promesa. Ninguna orden se envia."
         ),
     }
+
+
+def _recommendation(
+    traction: Any, snapshot: dict[str, object] | None, curve: object, trades: int
+) -> dict[str, object]:
+    """Senal accionable: COMPRA / MANTEN / VENDE / EVITA.
+
+    **No es un consejo financiero ni una orden.** Es una lectura de la traccion observada
+    traducida a una etiqueta, con las razones a la vista. El sistema no puede ejecutar nada:
+    LIVE esta deshabilitado. Quien decide comprar o vender es una persona, con esto como una
+    senal mas entre las que mire.
+
+    La regla es deliberadamente conservadora: por defecto MANTEN/OBSERVA. Solo se sugiere
+    COMPRA cuando hay empuje real Y todavia queda recorrido; se sugiere VENDE/EVITA cuando el
+    empuje se apaga o el token ya recorrio casi toda la curva (entrar tarde es perder).
+    """
+    from mit_pumpfun.curve import CurveState, progress_pct
+
+    reasons: list[str] = []
+    if trades < 3:
+        return {
+            "action": "OBSERVA",
+            "reason": "Aun no hay operaciones suficientes para leer nada.",
+            "confidence": "baja",
+        }
+
+    score = traction.score
+    pct = 0.0
+    if isinstance(curve, CurveState):
+        pct = float(progress_pct(curve))
+
+    # Presion compradora y sostenibilidad salen del propio desglose de traccion.
+    signals = {s.name: s.value for s in traction.signals}
+    pressure = signals.get("presion_compradora", 0.5)
+    momentum = signals.get("sostenibilidad", 0.5)
+
+    if pct >= 95:
+        action, confidence = "EVITA", "media"
+        reasons.append(f"la curva ya esta al {pct:.0f}%: entrar aqui es comprar el techo")
+    elif score >= 60 and pressure >= 0.55 and momentum >= 0.8 and pct < 80:
+        action, confidence = "COMPRA", "media" if score < 75 else "alta"
+        reasons.append(f"empuje {score:.0f}/100 con presion compradora y recorrido por delante")
+    elif score < 35 or momentum < 0.4 or pressure < 0.4:
+        action, confidence = "VENDE", "media"
+        reasons.append(
+            f"el empuje se apaga (score {score:.0f}, sostenibilidad {momentum:.0%}, "
+            f"presion {pressure:.0%})"
+        )
+    else:
+        action, confidence = "MANTEN", "baja"
+        reasons.append(f"traccion intermedia ({score:.0f}/100): ni entrada clara ni salida clara")
+
+    reasons.append("El sistema NO ejecuta: LIVE deshabilitado. La decision es tuya.")
+    return {"action": action, "reason": " · ".join(reasons), "confidence": confidence}

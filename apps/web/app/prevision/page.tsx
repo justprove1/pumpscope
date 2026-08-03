@@ -33,8 +33,21 @@ type Snapshot = {
   price_impact_bps: Record<string, number>;
 };
 
+type Signal = { name: string; value: number; weight: number; detail: string };
+type Traction = { score: number; label: string; signals: Signal[] };
+type Recommendation = { action: string; reason: string; confidence: string };
+
+type Whale = { present: boolean; direction: string; share_of_volume: number; sol_amount: number; detail: string };
+type PreBounce = { present: boolean; drop_pct: number; recovery_pct: number; detail: string };
+type Flow = Record<string, number | string>;
+
 type Live = {
   mint: string;
+  traction?: Traction;
+  recommendation?: Recommendation;
+  whale?: Whale;
+  pre_bounce?: PreBounce;
+  flow?: Flow;
   candles: Candle[];
   projected: Candle[];
   trades: number;
@@ -132,6 +145,7 @@ export default function PrevisionPage() {
   const [simSize, setSimSize] = useState('0.05');
   const [simHold, setSimHold] = useState('60');
   const [simLoading, setSimLoading] = useState(false);
+  const [popup, setPopup] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const poll = useCallback(async (target: string) => {
@@ -191,7 +205,34 @@ export default function PrevisionPage() {
             refresco {live.refresh_ms} ms
           </span>
         )}
+        {mint && (
+          <button className="popup-btn" onClick={() => setPopup((v) => !v)}>
+            {popup ? 'cerrar señal' : 'ventana de señal'}
+          </button>
+        )}
       </header>
+
+      {popup && mint && live?.recommendation && (
+        <div className="signal-popup">
+          <div className="signal-popup-head">
+            <span>Señal en vivo</span>
+            <button onClick={() => setPopup(false)} aria-label="cerrar">×</button>
+          </div>
+          <div className={`popup-action reco-${live.recommendation.action.toLowerCase()}`}>
+            {live.recommendation.action}
+          </div>
+          {live.traction && (
+            <div className="popup-row"><span>Empuje</span><b>{live.traction.score.toFixed(0)}/100</b></div>
+          )}
+          {live.whale?.present && (
+            <div className="popup-row whale"><span>🐋 Ballena</span><b>{live.whale.direction}</b></div>
+          )}
+          {live.pre_bounce?.present && (
+            <div className="popup-row bounce"><span>↩ Prerrebote</span><b>+{live.pre_bounce.recovery_pct}%</b></div>
+          )}
+          <p className="popup-note mono">{live.recommendation.reason}</p>
+        </div>
+      )}
 
       <div className="lookup">
         <input
@@ -205,6 +246,47 @@ export default function PrevisionPage() {
       </div>
 
       {live?.error && !live.candles.length && <p className="empty">RPC: {live.error}</p>}
+
+      {mint && live?.recommendation && (
+        <div className={`reco reco-${live.recommendation.action.toLowerCase()}`}>
+          <div className="reco-action">{live.recommendation.action}</div>
+          <div className="reco-body">
+            {live.traction && (
+              <div className="reco-traction">
+                <div className="reco-bar"><span style={{ width: `${live.traction.score}%` }} /></div>
+                <span>Empuje {live.traction.score.toFixed(0)}/100 · {live.traction.label}</span>
+              </div>
+            )}
+            <p className="mono">{live.recommendation.reason}</p>
+          </div>
+        </div>
+      )}
+
+      {mint && (live?.whale?.present || live?.pre_bounce?.present) && (
+        <div className="alerts">
+          {live?.whale?.present && (
+            <div className={`alert ${live.whale.direction === 'vendiendo' ? 'alert-bad' : 'alert-warn'}`}>
+              🐋 Ballena {live.whale.direction} · {live.whale.share_of_volume}% del volumen · {live.whale.detail}
+            </div>
+          )}
+          {live?.pre_bounce?.present && (
+            <div className="alert alert-good">
+              ↩ Posible prerrebote: {live.pre_bounce.detail}
+            </div>
+          )}
+        </div>
+      )}
+
+      {mint && live?.traction && live.traction.signals.length > 1 && (
+        <div className="impacts traction-signals">
+          {live.traction.signals.map((sig) => (
+            <div key={sig.name}>
+              <span className="k">{sig.name.replace(/_/g, ' ')}</span>
+              <span className="v" title={sig.detail}>{(sig.value * 100).toFixed(0)}%</span>
+            </div>
+          ))}
+        </div>
+      )}
 
       {mint && (
         <>
@@ -234,6 +316,22 @@ export default function PrevisionPage() {
                 <div><span className="k">Traders únicos</span><span className="v">{snapshot.unique_traders}</span></div>
                 <div><span className="k">Volumen observado</span><span className="v">{snapshot.volume_sol} SOL</span></div>
               </div>
+
+              {live?.flow && Object.keys(live.flow).length > 0 && (
+                <>
+                  <h3>Flujo observado</h3>
+                  <div className="fulltable">
+                    <div><span className="k">Flujo neto</span><span className="v">{String(live.flow.net_flow_sol)} SOL</span></div>
+                    <div><span className="k">SOL entrando</span><span className="v">{String(live.flow.sol_in)}</span></div>
+                    <div><span className="k">SOL saliendo</span><span className="v">{String(live.flow.sol_out)}</span></div>
+                    <div><span className="k">Ratio compra/venta</span><span className="v">{String(live.flow.buy_sell_ratio)}</span></div>
+                    <div><span className="k">Operaciones/min</span><span className="v">{String(live.flow.trades_per_minute)}</span></div>
+                    <div><span className="k">Aceleración</span><span className="v">{String(live.flow.acceleration)}×</span></div>
+                    <div><span className="k">Mayor operación</span><span className="v">{String(live.flow.largest_trade_sol)} SOL ({String(live.flow.largest_trade_side)})</span></div>
+                    <div><span className="k">Operación media</span><span className="v">{String(live.flow.avg_trade_sol)} SOL</span></div>
+                  </div>
+                </>
+              )}
 
               <h3>Coste de entrar (price impact)</h3>
               <div className="impacts">

@@ -208,7 +208,9 @@ class LiveTracker:
         return state
 
     async def _refresh_loop(self, state: TokenLiveState) -> None:
-        async with SolanaRpc(limits=RpcLimits(requests_per_second=6.0)) as rpc:
+        async with SolanaRpc(
+            limits=RpcLimits(requests_per_second=8.0, max_attempts=3, initial_backoff=0.5)
+        ) as rpc:
             while not state.idle:
                 started = time.monotonic()
                 try:
