@@ -174,7 +174,7 @@ mypy_path = [
 # sqlalchemy y alembic traen `py.typed`, asi que el modo strict es strict de verdad.
 # `solana` es la unica libreria del stack que no publica tipos.
 [[tool.mypy.overrides]]
-module = ["solana.*"]
+module = ["solana.*", "sklearn.*", "lightgbm.*", "shap.*"]
 ignore_missing_imports = true
 
 # ---------------------------------------------------------------------------

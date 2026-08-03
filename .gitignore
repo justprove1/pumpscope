@@ -41,3 +41,8 @@ prompts-fase/
 # --- SO / editor -------------------------------------------------------------
 .DS_Store
 .idea/
+
+# --- Corpus del minero -------------------------------------------------------
+# Crece hasta miles de archivos y se regenera con infrastructure/scripts/mine_corpus.py.
+# Se versionan las fixtures pequenas y curadas de tests/fixtures/*.json, no el corpus.
+tests/fixtures/corpus/

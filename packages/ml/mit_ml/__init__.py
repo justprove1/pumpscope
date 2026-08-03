@@ -1,12 +1,66 @@
-"""Modelos tabulares: entrenamiento, calibracion y monitorizacion.
+"""Modelos tabulares con probabilidades calibradas (SPEC.md 19, 20).
 
-STUB Fase 0: sin implementacion. Fase 5 (SPEC.md 19).
+Tres invariantes del paquete:
 
-Triple-barrier labeling, walk-forward, calibracion de probabilidades y SHAP. Los modelos
-degradados se desactivan automaticamente; un modelo desactivado no bloquea el sistema, que
-vuelve a modo heuristico.
+1. **El modelo NO decide importes.** Su salida es una probabilidad que entra como un score
+   mas; el `RiskEngine` sigue siendo el unico que dimensiona, y su entrada esta cerrada.
+2. **Anti-leakage estructural.** `TrainingWindow` filtra por timestamp Y por instante de
+   resolucion de la etiqueta antes de entregar nada.
+3. **Un modelo degradado se apaga solo** y el sistema cae al modo heuristico. Reactivarlo es
+   manual.
 """
 
 from __future__ import annotations
 
-__all__: list[str] = []
+from mit_ml.drift import (
+    DriftReport,
+    DriftThresholds,
+    ModelGuard,
+    ModelStatus,
+    detect_drift,
+)
+from mit_ml.labeling import (
+    BarrierHit,
+    Label,
+    PricePoint,
+    TripleBarrier,
+    label_observation,
+    label_series,
+    max_resolution,
+)
+from mit_ml.registry import PromotionError, Stage, StrategyLab, StrategyVersion
+from mit_ml.training import (
+    LeakageError,
+    ModelCard,
+    Sample,
+    TrainedModel,
+    TrainingWindow,
+    calibration_error,
+    train,
+)
+
+__all__ = [
+    "BarrierHit",
+    "DriftReport",
+    "DriftThresholds",
+    "Label",
+    "LeakageError",
+    "ModelCard",
+    "ModelGuard",
+    "ModelStatus",
+    "PricePoint",
+    "PromotionError",
+    "Sample",
+    "Stage",
+    "StrategyLab",
+    "StrategyVersion",
+    "TrainedModel",
+    "TrainingWindow",
+    "TripleBarrier",
+    "calibration_error",
+    "detect_drift",
+    "label_observation",
+    "label_series",
+    "max_resolution",
+    "train",
+]
