@@ -30,16 +30,20 @@ from mit_ml.labeling import (
 )
 from mit_ml.registry import PromotionError, Stage, StrategyLab, StrategyVersion
 from mit_ml.training import (
+    ALGORITHMS,
     LeakageError,
     ModelCard,
     Sample,
     TrainedModel,
     TrainingWindow,
     calibration_error,
+    explain,
+    top_drivers,
     train,
 )
 
 __all__ = [
+    "ALGORITHMS",
     "BarrierHit",
     "DriftReport",
     "DriftThresholds",
@@ -59,8 +63,10 @@ __all__ = [
     "TripleBarrier",
     "calibration_error",
     "detect_drift",
+    "explain",
     "label_observation",
     "label_series",
     "max_resolution",
+    "top_drivers",
     "train",
 ]

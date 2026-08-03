@@ -15,16 +15,20 @@ para dimensionar: si dice 70% y ocurre el 40%, el sizing esta mal por construcci
 from __future__ import annotations
 
 import itertools
+import logging
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
 
 import numpy as np
+from lightgbm import LGBMClassifier
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, roc_auc_score
+
+LOGGER = logging.getLogger("mit.ml.training")
 
 
 class LeakageError(AssertionError):
@@ -137,9 +141,29 @@ def calibration_error(y_true: np.ndarray, y_prob: np.ndarray, bins: int = 10) ->
     return float(total)
 
 
-ALGORITHMS = {
-    "logistic": lambda: LogisticRegression(max_iter=1000),
+# El orden NO es casual (SPEC.md 19): se empieza por el baseline. Si la regresion logistica
+# ya no distingue, el gradiente boosting solo va a sobreajustar mejor, y con mas conviccion.
+#
+# `random_state` fijo en los tres: un modelo que no se puede reentrenar identico no se puede
+# auditar ni comparar entre versiones.
+ALGORITHMS: dict[str, Any] = {
+    "logistic": lambda: LogisticRegression(max_iter=1000, random_state=0),
     "random_forest": lambda: RandomForestClassifier(n_estimators=100, random_state=0),
+    "lightgbm": lambda: LGBMClassifier(
+        n_estimators=200,
+        learning_rate=0.05,
+        num_leaves=15,
+        # Regularizacion deliberadamente alta: los corpus de memecoins son pequenos y
+        # ruidosos, y LightGBM memoriza ruido con una facilidad notable.
+        min_child_samples=20,
+        subsample=0.8,
+        subsample_freq=1,
+        colsample_bytree=0.8,
+        reg_lambda=1.0,
+        random_state=0,
+        verbosity=-1,
+        n_jobs=1,
+    ),
 }
 
 
@@ -200,3 +224,90 @@ def train(
         purge_seconds=window.purge.total_seconds(),
     )
     return TrainedModel(card=card, estimator=estimator, feature_names=feature_names)
+
+
+def _base_estimators(model: TrainedModel) -> list[Any]:
+    """Estimadores base que hay dentro del envoltorio de calibracion.
+
+    `CalibratedClassifierCV` guarda un estimador por pliegue. SHAP necesita el modelo de
+    dentro, no el calibrador: el calibrador solo reescala la salida y no tiene estructura
+    que explicar.
+    """
+    calibrated = getattr(model.estimator, "calibrated_classifiers_", [])
+    return [c.estimator for c in calibrated if hasattr(c, "estimator")]
+
+
+def explain(
+    model: TrainedModel,
+    features: dict[str, float],
+    background: Sequence[dict[str, float]] | None = None,
+) -> dict[str, float]:
+    """Aportacion SHAP de cada feature a ESTA prediccion (SPEC.md 19).
+
+    Devuelve un valor por feature: positivo empuja hacia la clase 1, negativo hacia la 0. Es
+    lo que convierte "probabilidad 0,73" en algo discutible.
+
+    Se promedian los estimadores de los pliegues de calibracion, porque cada uno vio datos
+    distintos y quedarse con uno seria arbitrario.
+
+    Si SHAP no puede explicar el modelo, devuelve un diccionario VACIO en vez de inventarse
+    numeros: una explicacion falsa es peor que ninguna, porque se cree.
+    """
+    import shap
+
+    estimators = _base_estimators(model)
+    if not estimators:
+        return {}
+
+    row = np.array([[features.get(name, 0.0) for name in model.feature_names]])
+    background_matrix = (
+        np.array([[b.get(name, 0.0) for name in model.feature_names] for b in background])
+        if background
+        else None
+    )
+
+    totals = np.zeros(len(model.feature_names))
+    used = 0
+    for estimator in estimators:
+        try:
+            if (
+                hasattr(estimator, "tree_")
+                or hasattr(estimator, "estimators_")
+                or hasattr(estimator, "booster_")
+            ):
+                explainer = shap.TreeExplainer(estimator)
+                values = explainer.shap_values(row)
+            elif background_matrix is not None:
+                explainer = shap.LinearExplainer(estimator, background_matrix)
+                values = explainer.shap_values(row)
+            else:
+                continue
+        except Exception:
+            # SHAP no soporta todas las combinaciones de modelo y version. Se anota y se
+            # sigue con el resto de pliegues: es preferible una explicacion parcial a
+            # ninguna, y ninguna a una inventada.
+            LOGGER.debug("SHAP no pudo explicar un estimador", exc_info=True)
+            continue
+
+        array = np.asarray(values)
+        # Segun modelo y version, SHAP devuelve (1, n), (1, n, 2) o una lista por clase.
+        if array.ndim == 3:
+            array = array[..., -1]
+        elif array.ndim == 1:
+            array = array.reshape(1, -1)
+        if array.shape[-1] != len(model.feature_names):
+            continue
+        totals += array[0]
+        used += 1
+
+    if used == 0:
+        return {}
+    return {
+        name: round(float(value / used), 6)
+        for name, value in zip(model.feature_names, totals, strict=True)
+    }
+
+
+def top_drivers(contributions: dict[str, float], limit: int = 3) -> list[tuple[str, float]]:
+    """Las features que mas pesaron, por magnitud absoluta y con su signo."""
+    return sorted(contributions.items(), key=lambda kv: -abs(kv[1]))[:limit]

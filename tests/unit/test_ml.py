@@ -411,3 +411,80 @@ def test_promotions_are_recorded() -> None:
     version = lab.register("momentum", {"threshold": 0.7})
     version.promote(Stage.BACKTESTED)
     assert version.history
+
+
+# --- LightGBM y SHAP ------------------------------------------------------------------------
+
+
+def test_the_three_algorithms_of_spec_19_are_wired() -> None:
+    """SPEC.md 19: baselines primero, boosting despues. Los tres disponibles."""
+    from mit_ml import ALGORITHMS
+
+    assert set(ALGORITHMS) == {"logistic", "random_forest", "lightgbm"}
+
+
+@pytest.mark.parametrize("algorithm", ["logistic", "random_forest", "lightgbm"])
+def test_every_algorithm_trains_and_calibrates(algorithm: str) -> None:
+    window = TrainingWindow(train_end=START + timedelta(minutes=150), purge=timedelta(minutes=30))
+    model = train(_samples(), window, algorithm=algorithm, name=algorithm)
+    assert model is not None
+    assert model.card.algorithm == algorithm
+    assert 0.0 <= model.card.calibration_error <= 1.0
+    assert 0.0 <= model.predict_proba({"momentum": 0.8, "noise": 0.2}) <= 1.0
+
+
+@pytest.mark.parametrize("algorithm", ["logistic", "random_forest", "lightgbm"])
+def test_training_is_reproducible(algorithm: str) -> None:
+    """Un modelo que no se reentrena identico no se puede auditar ni comparar."""
+    window = TrainingWindow(train_end=START + timedelta(minutes=150), purge=timedelta(minutes=30))
+    samples = _samples()
+    first = train(samples, window, algorithm=algorithm)
+    second = train(samples, window, algorithm=algorithm)
+    assert first is not None and second is not None
+    probe = {"momentum": 0.77, "noise": 0.31}
+    assert first.predict_proba(probe) == pytest.approx(second.predict_proba(probe), abs=1e-9)
+
+
+@pytest.mark.parametrize("algorithm", ["random_forest", "lightgbm"])
+def test_shap_explains_tree_models(algorithm: str) -> None:
+    """SPEC.md 19: la explicabilidad convierte '0,73' en algo discutible."""
+    from mit_ml import explain, top_drivers
+
+    window = TrainingWindow(train_end=START + timedelta(minutes=150), purge=timedelta(minutes=30))
+    model = train(_samples(), window, algorithm=algorithm)
+    assert model is not None
+
+    contributions = explain(model, {"momentum": 0.9, "noise": 0.2})
+    assert set(contributions) == set(model.feature_names)
+    drivers = top_drivers(contributions)
+    assert drivers
+    # `momentum` es la feature que genera la etiqueta: debe pesar mas que el ruido.
+    assert abs(contributions["momentum"]) >= abs(contributions["noise"])
+
+
+def test_shap_returns_nothing_rather_than_inventing_an_explanation() -> None:
+    """Una explicacion falsa es peor que ninguna, porque se cree."""
+    from mit_ml import explain
+    from mit_ml.training import TrainedModel
+
+    empty = TrainedModel(
+        card=train(
+            _samples(),
+            TrainingWindow(train_end=START + timedelta(minutes=150), purge=timedelta(minutes=30)),
+        ).card,  # type: ignore[union-attr]
+        estimator=object(),
+        feature_names=("momentum", "noise"),
+    )
+    assert explain(empty, {"momentum": 0.5, "noise": 0.5}) == {}
+
+
+def test_shap_contributions_are_signed() -> None:
+    """El signo importa: dice hacia que clase empuja cada feature."""
+    from mit_ml import explain
+
+    window = TrainingWindow(train_end=START + timedelta(minutes=150), purge=timedelta(minutes=30))
+    model = train(_samples(), window, algorithm="lightgbm")
+    assert model is not None
+    high = explain(model, {"momentum": 0.95, "noise": 0.5})
+    low = explain(model, {"momentum": 0.05, "noise": 0.5})
+    assert high["momentum"] > low["momentum"]
