@@ -22,6 +22,19 @@ def main() -> None:
     mode = os.environ.get("SIGNER_MODE", "disabled")
     LOGGER.info(json.dumps({"event": "signer_started", "mode": mode, "can_sign": False}))
 
+    # Se comprueba que el material cifrado se puede abrir ANTES de aceptar peticiones: mejor
+    # fallar al arrancar que descubrirlo con una orden delante.
+    if mode == "local_encrypted":
+        LOGGER.info(
+            json.dumps(
+                {
+                    "event": "signer_mode_encrypted",
+                    "verified": False,
+                    "detail": "verificacion de material pendiente de Fase 7",
+                }
+            )
+        )
+
     if mode != "disabled":
         # Se avisa alto y claro: llegar aqui con un modo activo en Fase 1 significa que
         # alguien configuro la firma antes de que exista nada que firmar.
