@@ -115,6 +115,7 @@ export default function Page() {
         <h1>Memecoin Intelligence Terminal</h1>
         <span className="badge read-only">solo lectura</span>
         <span className="badge">fase 1</span>
+        <a className="badge" href="/prevision">previsión tokens →</a>
         <span className="status">
           <span className={connected ? 'dot live' : 'dot'} />
           {connected ? 'en vivo' : 'desconectado'}
