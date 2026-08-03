@@ -1,4 +1,3 @@
-# STUB Fase 0: no hay jobs registrados todavia.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
@@ -15,4 +14,4 @@ RUN pip install --no-cache-dir -e .
 RUN useradd --create-home --uid 10001 app && chown -R app /app
 USER app
 
-CMD ["python", "-m", "mit_worker"]
+CMD ["python", "-m", "mit_worker.ingest"]

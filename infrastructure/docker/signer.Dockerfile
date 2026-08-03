@@ -13,8 +13,15 @@ COPY packages/solana/ ./packages/solana/
 COPY apps/signer/ ./apps/signer/
 RUN pip install --no-cache-dir pynacl solders fastapi "uvicorn[standard]" pydantic pydantic-settings
 
+# PYTHONPATH en vez de `pip install -e .`: instalar el proyecto entero arrastraria los 17
+# modulos del monorepo a la imagen del signer. Su superficie minima no es una
+# comodidad, es su propiedad de seguridad (SECURITY.md 2): cuanto menos codigo tenga el
+# unico proceso con acceso a la clave, menos puede salir mal.
+ENV PYTHONPATH=/app/apps/signer:/app/packages/shared:/app/packages/data-models:/app/packages/solana
+
 RUN useradd --create-home --uid 10002 signer && chown -R signer /app
 USER signer
 
-# STUB Fase 0: SIGNER_MODE=disabled por defecto; el proceso arranca y rechaza todo.
+# Fase 1: SIGNER_MODE=disabled. Arranca, declara su modo y no firma nada.
+# La firma real es Fase 6, tras completar LIVE_TRADING_CHECKLIST.md.
 CMD ["python", "-m", "mit_signer"]

@@ -1,4 +1,3 @@
-# STUB Fase 0: la imagen se construye pero mit_api todavia no expone una app.
 FROM python:3.12-slim
 
 ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1

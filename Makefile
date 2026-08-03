@@ -12,7 +12,7 @@ PY ?= $(shell [ -x .venv/bin/python ] && echo .venv/bin/python || echo python3)
 export
 
 .PHONY: help install install-dev lint format typecheck test test-unit test-integration \
-        check up down logs ps migrate revision downgrade seed fixtures clean \
+        check up down logs ps migrate revision downgrade seed fixtures ingest api clean \
         web-install web-dev
 
 help: ## Muestra esta ayuda
@@ -79,6 +79,14 @@ downgrade: ## Revierte una migracion
 
 seed: ## Carga datos de demo (solo APP_ENV=local)
 	$(PY) -m mit_api.scripts.seed_demo
+
+# --- Servicios de la aplicacion ----------------------------------------------
+
+ingest: ## Arranca la ingesta en vivo (Ctrl-C para parar)
+	$(PY) -m mit_worker.ingest
+
+api: ## Arranca la API de solo lectura en http://localhost:8000
+	$(PY) -m uvicorn mit_api.main:app --host 127.0.0.1 --port 8000
 
 # --- Datos reales ------------------------------------------------------------
 
