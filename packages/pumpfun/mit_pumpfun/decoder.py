@@ -87,8 +87,8 @@ class TokenCreation:
     trailing_flags: bytes
 
 
-class _Reader:
-    """Lector Borsh minimo. Solo lo que hace falta: strings y pubkeys."""
+class BorshReader:
+    """Lector Borsh minimo. Solo lo que hace falta aqui: strings, pubkeys y enteros."""
 
     __slots__ = ("_buf", "_pos")
 
@@ -186,7 +186,7 @@ def decode_create(instruction: ParsedInstruction) -> tuple[str, str, str, str, b
         msg = f"discriminador {instruction.discriminator.hex()} no es una creacion"
         raise DecodeError(msg)
 
-    reader = _Reader(instruction.data[DISCRIMINATOR_LENGTH:])
+    reader = BorshReader(instruction.data[DISCRIMINATOR_LENGTH:])
     name = reader.string()
     symbol = reader.string()
     uri = reader.string()
