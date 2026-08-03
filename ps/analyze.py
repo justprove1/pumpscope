@@ -303,6 +303,20 @@ def analyze(mint, horizon_h=6.0):
         "horizon_label": _fmt_h(eff_h), "span_h": span_h,
         "expected_move_pct": (math.exp(move) - 1.0) * 100.0 if move else 0.0,
         "dist_source": dist_src, "boot_n": len(boot),
+        # Parametros para dibujar el cono de prevision segundo a segundo.
+        # Los objetivos de arriba son el valor AL FINAL del horizonte; para
+        # trazar la curva intermedia hace falta reescalar por tiempo con el
+        # exponente medido: nivel(t) = p0 · exp( r_H · (t/H)^hurst ).
+        "pronostico": {
+            "t0": now, "p0": price,
+            "horizonte_s": eff_h * 3600.0,
+            "hurst": hu,
+            "r_up": up_r, "r_dn": dn_r,
+            "r_hi": band_hi_r, "r_lo": band_lo_r,
+            "p_up": pred["probs"][model.UP],
+            "p_rango": pred["probs"][model.RANGE],
+            "p_dn": pred["probs"][model.DOWN],
+        },
         "sigma_source": stats.get("sigma_source"),
         "skew_pct": (((math.exp(up_r) - 1.0) + (math.exp(dn_r) - 1.0)) * 100.0
                      if (up_r and dn_r) else None),

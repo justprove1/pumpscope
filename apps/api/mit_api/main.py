@@ -26,6 +26,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from mit_api.queries import TokenQueries
 
 CHANNEL_NEW_TOKENS = "mit:tokens.new"
+CHANNEL_ANALYSIS = "mit:tokens.analysis"
 HEARTBEAT_SECONDS = 15.0
 
 
@@ -94,7 +95,7 @@ async def stream(websocket: WebSocket) -> None:
     await websocket.accept()
     client = app.state.redis
     pubsub = client.pubsub()
-    await pubsub.subscribe(CHANNEL_NEW_TOKENS)
+    await pubsub.subscribe(CHANNEL_NEW_TOKENS, CHANNEL_ANALYSIS)
 
     try:
         while True:
@@ -106,14 +107,23 @@ async def stream(websocket: WebSocket) -> None:
                 continue
             data = message["data"]
             payload = data.decode() if isinstance(data, bytes) else str(data)
+            raw_channel = message.get("channel")
+            channel_name = (
+                raw_channel.decode() if isinstance(raw_channel, bytes) else str(raw_channel)
+            )
+            is_analysis = channel_name == CHANNEL_ANALYSIS
             await websocket.send_text(
                 json.dumps(
-                    {"channel": "tokens.new", "event": "token", "payload": json.loads(payload)}
+                    {
+                        "channel": "tokens.analysis" if is_analysis else "tokens.new",
+                        "event": "analysis" if is_analysis else "token",
+                        "payload": json.loads(payload),
+                    }
                 )
             )
     except (WebSocketDisconnect, asyncio.CancelledError):
         pass
     finally:
         with contextlib.suppress(Exception):
-            await pubsub.unsubscribe(CHANNEL_NEW_TOKENS)
+            await pubsub.unsubscribe(CHANNEL_NEW_TOKENS, CHANNEL_ANALYSIS)
             await pubsub.aclose()

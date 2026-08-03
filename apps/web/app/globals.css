@@ -53,3 +53,8 @@ tr.fresh { animation: flash 1.6s ease-out; }
 .warn { color: var(--warn); }
 .empty { color: var(--muted); padding: 32px 8px; text-align: center; }
 footer { margin-top: 32px; font-size: 12px; color: var(--muted); }
+
+.good { color: var(--ok); }
+.bad { color: var(--down); }
+.pending { color: var(--muted); font-style: italic; }
+td[title] { cursor: help; }

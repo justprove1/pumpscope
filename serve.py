@@ -66,6 +66,15 @@ h2{font-size:12px;text-transform:uppercase;letter-spacing:.07em;color:#7d8694;ma
 .win .wl{font-size:10px;color:#5c6572;text-transform:uppercase;letter-spacing:.05em}
 .win .wv{font-size:12.5px;font-weight:700;font-family:ui-monospace,monospace;margin-top:2px}
 .win .wc{font-size:10.5px;margin-top:1px;font-family:ui-monospace,monospace}
+.gwrap{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:6px}
+@media(max-width:660px){.gwrap{grid-template-columns:1fr}}
+.gbox{background:#0d1015;border:1px solid #1e242e;border-radius:9px;padding:10px 10px 6px}
+.gtit{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:#7d8694;margin-bottom:6px;display:flex;justify-content:space-between;align-items:center}
+.gtit b{font-size:11px}
+.gcv{width:100%;height:190px;display:block}
+.gleg{display:flex;gap:12px;flex-wrap:wrap;font-size:10.5px;color:#5c6572;margin-top:5px}
+.gleg i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.gscore{background:#0d1015;border:1px solid #1e242e;border-radius:8px;padding:10px 12px;margin-top:10px;font-size:12.5px}
 .stH{font-size:14px;font-weight:700;letter-spacing:.04em;margin-bottom:12px}
 .stR{display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid #161b22;font-size:13px}
 .stR:last-of-type{border:0}
@@ -149,7 +158,7 @@ colas por definición. No es consejo financiero.
 </div></div>
 <script>
 const $=s=>document.querySelector(s), out=$('#out');
-let LAST_MINT='', MC3={}, WH=null;
+let LAST_MINT='', MC3={}, WH=null, FC=null, PATH=[];
 // El input acepta "0,5" y "0.5": se normaliza aqui en vez de confiar en el
 // locale del navegador, que con type=number devolvia cadena vacia.
 function horizonte(){
@@ -274,6 +283,25 @@ function render(d){
   h+='</div>';
  }
 
+ if(d.pronostico&&d.pronostico.p0){
+  FC=d.pronostico; PATH=[];
+  h+='<div class="card"><h2>Previsión vs realidad</h2>'+
+     '<div class="scD" style="font-size:12.5px;color:#7d8694">El cono se congela en el instante del análisis y '+
+     'no se recalcula. La derecha es el precio real llegando en directo. Misma escala en ambas para que la '+
+     'comparación sea justa.</div>'+
+     '<div class="gwrap">'+
+       '<div class="gbox"><div class="gtit"><span>Previsión</span><b class="up" id="gFH">—</b></div>'+
+         '<canvas class="gcv" id="gF"></canvas>'+
+         '<div class="gleg"><span><i style="background:#3ecf8e"></i>objetivo alza</span>'+
+         '<span><i style="background:rgba(232,179,57,.45)"></i>banda de rango</span>'+
+         '<span><i style="background:#f0616d"></i>objetivo baja</span></div></div>'+
+       '<div class="gbox"><div class="gtit"><span>Precio real</span><b id="gRH">—</b></div>'+
+         '<canvas class="gcv" id="gR"></canvas>'+
+         '<div class="gleg"><span><i style="background:#5c8cff"></i>precio en vivo</span>'+
+         '<span><i style="background:#2a3140"></i>banda prevista</span></div></div>'+
+     '</div><div class="gscore" id="gS">esperando ticks…</div></div>';
+ }
+
  if(d.setup){
   const t=d.setup, cc=t.color==='g'?'up':(t.color==='red'?'dn':'rg');
   h+='<div class="card"><h2>Condiciones de entrada</h2>'+
@@ -349,6 +377,7 @@ function render(d){
  LAST_MINT=d.mint;
  out.innerHTML=h;
  if(WH)pintaBallenas(WH);
+ if(FC)dibuja();
  startLive(d);
 }
 
@@ -411,6 +440,11 @@ function startLive(d){
   }
 
   // Barrera de flujo: se repinta cuando llega el carril lento (~24s).
+  if(FC&&v.price){
+   PATH.push({t:v.ts||(Date.now()/1000), p:v.price});
+   if(PATH.length>1200)PATH.shift();
+   dibuja();
+  }
   if(v.flujo)pintaBarrera(v.flujo);
   if(v.ballenas){WH=v.ballenas;pintaBallenas(v.ballenas);}
   // Ventanas de compras/ventas: carril medio (~8s).
@@ -482,6 +516,108 @@ async function explicar(btn,clase){
  }catch(e){box.innerHTML='<div class="err">'+esc(e.message)+'</div>';}
 }
 
+
+// ---- graficas prevision vs realidad ---------------------------------------
+// El cono se congela en el analisis: nivel(t) = p0 · exp( r_H · (t/H)^hurst ).
+// Ese reescalado por tiempo es lo que hace que a 4 segundos la banda sea
+// estrecha y no el ancho del horizonte completo.
+function nivel(r, t){
+ if(!FC||!FC.horizonte_s)return FC?FC.p0:0;
+ const sc = Math.pow(Math.max(t,0)/FC.horizonte_s, FC.hurst||0.5);
+ return FC.p0*Math.exp(r*sc);
+}
+
+function prep(cv){
+ const dpr=window.devicePixelRatio||1, r=cv.getBoundingClientRect();
+ cv.width=Math.max(1,Math.round(r.width*dpr)); cv.height=Math.max(1,Math.round(r.height*dpr));
+ const x=cv.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0);
+ x.clearRect(0,0,r.width,r.height);
+ return {c:x,w:r.width,h:r.height};
+}
+
+function dibuja(){
+ const cf=$('#gF'), cr=$('#gR');
+ if(!cf||!cr||!FC)return;
+ const elapsed = PATH.length ? (PATH[PATH.length-1].t-FC.t0) : 0;
+ // Ventana temporal adaptativa: arranca en 60s y crece con los datos.
+ const T = Math.min(FC.horizonte_s, Math.max(60, elapsed*1.25));
+
+ // Escala Y comun: cubre el cono Y el precio real, para comparar de verdad.
+ let lo=Math.min(nivel(FC.r_lo,T),nivel(FC.r_dn,T)), hi=Math.max(nivel(FC.r_hi,T),nivel(FC.r_up,T));
+ PATH.forEach(p=>{ if(p.p<lo)lo=p.p; if(p.p>hi)hi=p.p; });
+ const pad=(hi-lo)*0.12||FC.p0*0.01; lo-=pad; hi+=pad;
+
+ const PADL=6, PADR=6, PADT=6, PADB=16;
+ const mk=(g)=>({
+  X:t=>PADL+(t/T)*(g.w-PADL-PADR),
+  Y:p=>PADT+(1-(p-lo)/(hi-lo))*(g.h-PADT-PADB)
+ });
+
+ // rejilla + linea del precio de partida
+ const grid=(g,m)=>{
+  g.c.strokeStyle='#161b22'; g.c.lineWidth=1;
+  for(let i=0;i<=3;i++){const y=PADT+i*(g.h-PADT-PADB)/3;
+   g.c.beginPath();g.c.moveTo(PADL,y);g.c.lineTo(g.w-PADR,y);g.c.stroke();}
+  g.c.strokeStyle='#2a3140'; g.c.setLineDash([3,3]);
+  g.c.beginPath();g.c.moveTo(PADL,m.Y(FC.p0));g.c.lineTo(g.w-PADR,m.Y(FC.p0));g.c.stroke();
+  g.c.setLineDash([]);
+ };
+
+ const N=90;
+ // ---- izquierda: el cono de prevision ----
+ const gf=prep(cf), mf=mk(gf); grid(gf,mf);
+ gf.c.beginPath();
+ for(let i=0;i<=N;i++){const t=T*i/N; const x=mf.X(t); i?gf.c.lineTo(x,mf.Y(nivel(FC.r_hi,t))):gf.c.moveTo(x,mf.Y(nivel(FC.r_hi,t)));}
+ for(let i=N;i>=0;i--){const t=T*i/N; gf.c.lineTo(mf.X(t),mf.Y(nivel(FC.r_lo,t)));}
+ gf.c.closePath(); gf.c.fillStyle='rgba(232,179,57,.18)'; gf.c.fill();
+ const linea=(g,m,r,col,dash)=>{
+  g.c.beginPath(); g.c.strokeStyle=col; g.c.lineWidth=1.6; g.c.setLineDash(dash||[]);
+  for(let i=0;i<=N;i++){const t=T*i/N,x=m.X(t),y=m.Y(nivel(r,t)); i?g.c.lineTo(x,y):g.c.moveTo(x,y);}
+  g.c.stroke(); g.c.setLineDash([]);
+ };
+ linea(gf,mf,FC.r_up,'#3ecf8e'); linea(gf,mf,FC.r_dn,'#f0616d');
+ linea(gf,mf,FC.r_hi,'rgba(232,179,57,.6)',[2,2]);
+ linea(gf,mf,FC.r_lo,'rgba(232,179,57,.6)',[2,2]);
+
+ // ---- derecha: el precio real ----
+ const gr=prep(cr), mr=mk(gr); grid(gr,mr);
+ linea(gr,mr,FC.r_hi,'#2a3140',[2,2]); linea(gr,mr,FC.r_lo,'#2a3140',[2,2]);
+ if(PATH.length){
+  gr.c.beginPath(); gr.c.strokeStyle='#5c8cff'; gr.c.lineWidth=1.8;
+  PATH.forEach((p,i)=>{const x=mr.X(Math.min(p.t-FC.t0,T)),y=mr.Y(p.p); i?gr.c.lineTo(x,y):gr.c.moveTo(x,y);});
+  gr.c.stroke();
+  const last=PATH[PATH.length-1];
+  gr.c.fillStyle='#5c8cff'; gr.c.beginPath();
+  gr.c.arc(mr.X(Math.min(last.t-FC.t0,T)),mr.Y(last.p),3,0,7); gr.c.fill();
+ }
+
+ // ---- cabeceras y marcador ----
+ const fh=$('#gFH'), rh=$('#gRH');
+ if(fh)fh.textContent=pc((Math.exp(FC.r_hi*Math.pow(Math.min(elapsed,T)/FC.horizonte_s,FC.hurst||.5))-1)*100)+' banda alta';
+ if(PATH.length&&rh){
+  const ch=(PATH[PATH.length-1].p/FC.p0-1)*100;
+  rh.textContent=pc(ch); rh.className=ch>0?'up':(ch<0?'dn':'rg');
+ }
+ marcador(elapsed);
+}
+
+// Cuanto tiempo lleva el precio real dentro de la banda prevista.
+function marcador(elapsed){
+ const el=$('#gS'); if(!el||!FC)return;
+ if(PATH.length<2){el.textContent='esperando ticks… (llegan cada ~1,5 s)';return;}
+ let dentro=0;
+ PATH.forEach(p=>{const t=p.t-FC.t0;
+  if(p.p>=nivel(FC.r_lo,t)&&p.p<=nivel(FC.r_hi,t))dentro++;});
+ const pctd=dentro/PATH.length*100;
+ const last=PATH[PATH.length-1], tl=last.t-FC.t0;
+ let donde,cls;
+ if(last.p>nivel(FC.r_hi,tl)){donde='por ENCIMA de la banda (escenario alcista)';cls='up';}
+ else if(last.p<nivel(FC.r_lo,tl)){donde='por DEBAJO de la banda (escenario bajista)';cls='dn';}
+ else {donde='DENTRO de la banda (escenario de rango)';cls='rg';}
+ el.innerHTML='<b>'+Math.round(elapsed)+'s</b> transcurridos · '+PATH.length+' ticks · '+
+   'el precio ha estado <b>'+pctd.toFixed(0)+'%</b> del tiempo dentro de la banda prevista'+
+   ' · ahora está <b class="'+cls+'">'+donde+'</b>';
+}
 
 function pintaBallenas(w){
  const el=$('#whWrap'); if(!el||!w||!w.niveles)return;
@@ -600,6 +736,7 @@ def payload(a, why=True):
         "tendencia": a.get("trend"),
         "ballenas": a.get("whale"),
         "setup": a.get("setup"),
+        "pronostico": a.get("pronostico"),
         "horizonte_label": a["horizon_label"],
         "horizonte_pedido_h": a["horizon_pedido_h"],
         "horizonte_recortado": a["horizon_recortado"],

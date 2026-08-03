@@ -26,8 +26,10 @@ from mit_observability.metrics import IngestMetrics
 from mit_pumpfun.constants import PUMPFUN_PROGRAM_ID
 from mit_pumpfun.detector import DetectedToken, NewTokenDetector
 from mit_solana.logs_stream import ResilientLogStream
+from mit_solana.rpc import RpcLimits, SolanaRpc
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from mit_worker.analysis import AnalysisPipeline
 from mit_worker.repository import TokenRepository
 
 LOGGER = logging.getLogger("mit.ingest")
@@ -92,6 +94,11 @@ class IngestService:
         self._repository = TokenRepository(self._engine)
         self._redis = redis.from_url(config.redis_url)  # type: ignore[no-untyped-call]  # redis no anota from_url
         self._detector = NewTokenDetector(provider=config.provider)
+        # Ritmo del analisis MUY por debajo del limite del endpoint publico: la ingesta
+        # tiene prioridad, y perder el WebSocket por agotar cuota analizando seria un
+        # mal negocio.
+        self._rpc = SolanaRpc(limits=RpcLimits(requests_per_second=2.0))
+        self._analysis = AnalysisPipeline(self._rpc, self._redis)
         self.metrics = IngestMetrics()
         self._stop = asyncio.Event()
 
@@ -99,6 +106,7 @@ class IngestService:
         self._stop.set()
 
     async def close(self) -> None:
+        await self._rpc.close()
         await self._redis.aclose()
         await self._engine.dispose()
 
@@ -131,6 +139,9 @@ class IngestService:
 
         payload = token_payload(token)
         LOGGER.info(json.dumps({"event": "token_detected", **payload}))
+        # Se encola para analisis. Si la cola esta llena se descarta y se cuenta: el token
+        # queda registrado igual, solo sin veredicto.
+        self._analysis.submit(token)
         with contextlib.suppress(Exception):
             await self._redis.publish(CHANNEL_NEW_TOKENS, json.dumps(payload))
 
@@ -146,8 +157,11 @@ class IngestService:
             )
         )
         consumer = asyncio.create_task(self._consume(stream))
+        analyst = asyncio.create_task(self._analysis.run())
         stopper = asyncio.create_task(self._stop.wait())
-        done, pending = await asyncio.wait({consumer, stopper}, return_when=asyncio.FIRST_COMPLETED)
+        done, pending = await asyncio.wait(
+            {consumer, stopper, analyst}, return_when=asyncio.FIRST_COMPLETED
+        )
         for task in pending:
             task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

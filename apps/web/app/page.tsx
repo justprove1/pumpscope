@@ -20,7 +20,19 @@ type Token = {
   onchain_lag_seconds: number | null;
 };
 
-type Row = Token & { fresh?: boolean };
+type Analysis = {
+  mint: string;
+  opportunity: number;
+  manipulation_risk: number;
+  holders: number;
+  top10_pct: number | null;
+  signal: string;
+  eligible: boolean;
+  reasons: string[];
+  partial: boolean;
+};
+
+type Row = Token & { fresh?: boolean; analysis?: Analysis };
 
 function short(address: string): string {
   return address.length > 12 ? `${address.slice(0, 4)}…${address.slice(-4)}` : address;
@@ -74,8 +86,15 @@ export default function Page() {
       ws.onmessage = (message) => {
         const parsed = JSON.parse(message.data as string) as {
           channel: string;
-          payload?: Token;
+          payload?: Token & Partial<Analysis>;
         };
+        if (parsed.channel === 'tokens.analysis' && parsed.payload) {
+          const verdict = parsed.payload as unknown as Analysis;
+          setRows((current) =>
+            current.map((row) => (row.mint === verdict.mint ? { ...row, analysis: verdict } : row)),
+          );
+          return;
+        }
         if (parsed.channel !== 'tokens.new' || !parsed.payload) return;
         setDetected((n) => n + 1);
         setRows((current) => [{ ...parsed.payload!, fresh: true }, ...current].slice(0, MAX_ROWS));
@@ -119,8 +138,10 @@ export default function Page() {
             <th>Token</th>
             <th>Mint</th>
             <th>Creador</th>
-            <th>Slot</th>
-            <th>Latencia</th>
+            <th>Score</th>
+            <th>Riesgo</th>
+            <th>Holders</th>
+            <th>Señal</th>
             <th>Visto</th>
           </tr>
         </thead>
@@ -140,9 +161,45 @@ export default function Page() {
                   </span>
                 ) : null}
               </td>
-              <td className="mono">{row.slot || '—'}</td>
               <td className="mono">
-                {row.pipeline_latency_ms ? `${row.pipeline_latency_ms.toFixed(1)} ms` : '—'}
+                {row.analysis ? (
+                  <span className={row.analysis.opportunity >= 50 ? 'good' : undefined}>
+                    {row.analysis.opportunity.toFixed(0)}
+                  </span>
+                ) : (
+                  <span className="pending">analizando…</span>
+                )}
+              </td>
+              <td className="mono">
+                {row.analysis ? (
+                  <span
+                    className={row.analysis.manipulation_risk >= 40 ? 'bad' : undefined}
+                    title={row.analysis.reasons.join(' · ')}
+                  >
+                    {row.analysis.manipulation_risk}
+                    {row.analysis.reasons.length > 0 ? ` (${row.analysis.reasons.length})` : ''}
+                  </span>
+                ) : (
+                  '—'
+                )}
+              </td>
+              <td className="mono">
+                {row.analysis
+                  ? `${row.analysis.holders}${
+                      row.analysis.top10_pct !== null
+                        ? ` · top10 ${row.analysis.top10_pct.toFixed(0)}%`
+                        : ''
+                    }`
+                  : '—'}
+              </td>
+              <td className="mono">
+                {row.analysis ? (
+                  <span className={row.analysis.eligible ? 'good' : 'bad'}>
+                    {row.analysis.signal}
+                  </span>
+                ) : (
+                  '—'
+                )}
               </td>
               <td className="mono">
                 {row.received_timestamp
@@ -161,7 +218,9 @@ export default function Page() {
       )}
 
       <footer>
-        Sin trading. Sin señales. Esta interfaz no puede abrir ni cerrar ninguna posición.
+        Los veredictos son análisis, no recomendaciones. Esta interfaz no puede abrir ni
+        cerrar ninguna posición, y el sistema no tiene el trading real habilitado.
+        Pasa el ratón por el riesgo para ver las razones concretas.
       </footer>
     </div>
   );
