@@ -1,211 +1,280 @@
 'use client';
 
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
+const REFRESH_MS = 800;
+
+type Candle = {
+  time: number;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  volume_sol: number;
+  trades: number;
+  projected: boolean;
+};
 
 type Snapshot = {
-  price_sol: number;
-  market_cap_sol: number;
-  liquidity_sol: number;
+  price_sol_exact: string;
+  market_cap_sol_exact: string;
+  liquidity_sol_exact: string;
   sol_to_graduate: number;
   graduation_market_cap_sol: number;
   progress_pct: number;
+  virtual_sol_reserves: number;
+  virtual_token_reserves: number;
+  invariant_k: string;
+  buys: number;
+  sells: number;
+  unique_traders: number;
+  volume_sol: string;
   price_impact_bps: Record<string, number>;
 };
 
-type ProjectionPoint = { seconds_ahead: number; percentile: number; price_sol: number };
-
-type Detail = {
-  found: boolean;
+type Live = {
   mint: string;
-  detail?: string;
-  symbol?: string;
-  name?: string;
-  creator?: string;
+  candles: Candle[];
+  projected: Candle[];
+  trades: number;
+  volatility_per_second: number;
+  refresh_ms: number;
+  error: string | null;
   snapshot?: Snapshot;
-  history?: number[];
-  projection?: ProjectionPoint[];
-  disclaimer?: string;
 };
 
-const W = 460;
-const H = 260;
-const PAD = 40;
+type Sim = {
+  ok: boolean;
+  detail?: string;
+  runs?: number;
+  trades_closed?: number;
+  p10_sol?: number;
+  median_sol?: number;
+  p90_sol?: number;
+  worst_sol?: number;
+  best_sol?: number;
+  losing_runs?: number;
+  avg_entry_slippage_bps?: number;
+  avg_latency_ms?: number;
+  fees_sol?: number;
+  stuck_positions?: number;
+  failures?: Record<string, number>;
+};
 
-function scale(value: number, min: number, max: number, from: number, to: number): number {
-  if (max === min) return (from + to) / 2;
-  return from + ((value - min) / (max - min)) * (to - from);
+const CW = 480;
+const CH = 300;
+const PAD = 46;
+
+function scaleY(value: number, min: number, max: number): number {
+  if (max === min) return CH / 2;
+  return CH - PAD - ((value - min) / (max - min)) * (CH - 2 * PAD);
 }
 
-/** Cono de percentiles. Ancho = incertidumbre, y eso es informacion, no un defecto. */
-function ProjectionChart({ points }: { points: ProjectionPoint[] }) {
-  if (points.length === 0) return <p className="empty">Sin datos para proyectar.</p>;
-
-  const prices = points.map((p) => p.price_sol);
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const maxT = Math.max(...points.map((p) => p.seconds_ahead));
-
-  const band = (low: number, high: number, fill: string) => {
-    const lows = points.filter((p) => p.percentile === low).sort((a, b) => a.seconds_ahead - b.seconds_ahead);
-    const highs = points.filter((p) => p.percentile === high).sort((a, b) => b.seconds_ahead - a.seconds_ahead);
-    const path = [...lows, ...highs]
-      .map((p, i) => {
-        const x = scale(p.seconds_ahead, 0, maxT, PAD, W - PAD);
-        const y = scale(p.price_sol, min, max, H - PAD, PAD);
-        return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-      })
-      .join(' ');
-    return <path d={`${path} Z`} fill={fill} stroke="none" />;
-  };
-
-  const median = points
-    .filter((p) => p.percentile === 0.5)
-    .sort((a, b) => a.seconds_ahead - b.seconds_ahead)
-    .map((p, i) => {
-      const x = scale(p.seconds_ahead, 0, maxT, PAD, W - PAD);
-      const y = scale(p.price_sol, min, max, H - PAD, PAD);
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
-
-  return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="Cono de proyección">
-      {band(0.1, 0.9, 'rgba(78,161,255,0.12)')}
-      {band(0.25, 0.75, 'rgba(78,161,255,0.25)')}
-      <path d={median} fill="none" stroke="var(--accent)" strokeWidth="2" strokeDasharray="4 3" />
-      <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="var(--border)" />
-      <line x1={PAD} y1={PAD} x2={PAD} y2={H - PAD} stroke="var(--border)" />
-      <text x={PAD} y={H - 14} className="axis">ahora</text>
-      <text x={W - PAD - 24} y={H - 14} className="axis">+{maxT}s</text>
-      <text x={6} y={PAD + 4} className="axis">{max.toExponential(2)}</text>
-      <text x={6} y={H - PAD} className="axis">{min.toExponential(2)}</text>
-    </svg>
-  );
-}
-
-/** Precio real observado. Sin suavizar: se muestra lo que paso. */
-function HistoryChart({ prices }: { prices: number[] }) {
-  if (prices.length < 2) {
-    return <p className="empty">Aún no hay suficientes precios observados de este token.</p>;
+/** Velas japonesas. `projected` se dibuja con relleno translucido: es un cono, no un hecho. */
+function CandleChart({ candles, title, projected }: { candles: Candle[]; title: string; projected: boolean }) {
+  if (candles.length === 0) {
+    return (
+      <section>
+        <h3>{title}</h3>
+        <div className="chart empty-chart">Esperando operaciones on-chain…</div>
+      </section>
+    );
   }
-  const min = Math.min(...prices);
-  const max = Math.max(...prices);
-  const path = prices
-    .map((price, i) => {
-      const x = scale(i, 0, prices.length - 1, PAD, W - PAD);
-      const y = scale(price, min, max, H - PAD, PAD);
-      return `${i === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`;
-    })
-    .join(' ');
+  const highs = candles.map((c) => c.high);
+  const lows = candles.map((c) => c.low);
+  const min = Math.min(...lows);
+  const max = Math.max(...highs);
+  const slot = (CW - 2 * PAD) / candles.length;
+  const bodyW = Math.max(2, slot * 0.6);
 
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="chart" role="img" aria-label="Precio observado">
-      <path d={path} fill="none" stroke="var(--ok)" strokeWidth="2" />
-      <line x1={PAD} y1={H - PAD} x2={W - PAD} y2={H - PAD} stroke="var(--border)" />
-      <line x1={PAD} y1={PAD} x2={PAD} y2={H - PAD} stroke="var(--border)" />
-      <text x={PAD} y={H - 14} className="axis">{prices.length} obs.</text>
-      <text x={6} y={PAD + 4} className="axis">{max.toExponential(2)}</text>
-      <text x={6} y={H - PAD} className="axis">{min.toExponential(2)}</text>
-    </svg>
+    <section>
+      <h3>{title}</h3>
+      <svg viewBox={`0 0 ${CW} ${CH}`} className="chart" role="img" aria-label={title}>
+        <line x1={PAD} y1={CH - PAD} x2={CW - PAD} y2={CH - PAD} stroke="var(--border)" />
+        <line x1={PAD} y1={PAD} x2={PAD} y2={CH - PAD} stroke="var(--border)" />
+        {candles.map((c, i) => {
+          const x = PAD + slot * i + slot / 2;
+          const up = c.close >= c.open;
+          const color = projected ? 'var(--accent)' : up ? 'var(--ok)' : 'var(--down)';
+          const bodyTop = scaleY(Math.max(c.open, c.close), min, max);
+          const bodyBottom = scaleY(Math.min(c.open, c.close), min, max);
+          return (
+            <g key={`${c.time}-${i}`}>
+              <line x1={x} y1={scaleY(c.high, min, max)} x2={x} y2={scaleY(c.low, min, max)} stroke={color} strokeWidth="1" />
+              <rect
+                x={x - bodyW / 2}
+                y={bodyTop}
+                width={bodyW}
+                height={Math.max(1, bodyBottom - bodyTop)}
+                fill={projected ? 'none' : color}
+                stroke={color}
+                strokeWidth={projected ? 1.5 : 0}
+                strokeDasharray={projected ? '3 2' : undefined}
+                opacity={projected ? 0.8 : 1}
+              />
+            </g>
+          );
+        })}
+        <text x={6} y={PAD + 4} className="axis">{max.toExponential(2)}</text>
+        <text x={6} y={CH - PAD} className="axis">{min.toExponential(2)}</text>
+      </svg>
+    </section>
   );
 }
 
 export default function PrevisionPage() {
   const [reference, setReference] = useState('');
-  const [detail, setDetail] = useState<Detail | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [mint, setMint] = useState('');
+  const [live, setLive] = useState<Live | null>(null);
+  const [sim, setSim] = useState<Sim | null>(null);
+  const [simSize, setSimSize] = useState('0.05');
+  const [simHold, setSimHold] = useState('60');
+  const [simLoading, setSimLoading] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const lookup = async () => {
+  const poll = useCallback(async (target: string) => {
+    try {
+      const response = await fetch(`${API}/v1/tokens/${encodeURIComponent(target)}/live`);
+      setLive((await response.json()) as Live);
+    } catch {
+      /* reintenta en el siguiente tick */
+    }
+    timer.current = setTimeout(() => poll(target), REFRESH_MS);
+  }, []);
+
+  useEffect(() => {
+    if (!mint) return;
+    void poll(mint);
+    return () => {
+      if (timer.current) clearTimeout(timer.current);
+    };
+  }, [mint, poll]);
+
+  const start = () => {
     const value = reference.trim();
     if (!value) return;
-    setLoading(true);
+    const withoutQuery = value.split('?')[0] ?? value;
+    const cleaned = withoutQuery.replace(/\/$/, '').split('/').pop() ?? value;
+    setLive(null);
+    setSim(null);
+    setMint(cleaned);
+  };
+
+  const simulate = async () => {
+    if (!mint) return;
+    setSimLoading(true);
     try {
-      // `noUncheckedIndexedAccess` obliga a tratar el split como posiblemente vacio.
-      const withoutQuery = value.split('?')[0] ?? value;
-      const cleaned = withoutQuery.replace(/\/$/, '').split('/').pop() ?? value;
-      const response = await fetch(`${API}/v1/tokens/${encodeURIComponent(cleaned)}/detail`);
-      setDetail((await response.json()) as Detail);
+      const response = await fetch(
+        `${API}/v1/tokens/${encodeURIComponent(mint)}/simulate?size_sol=${simSize}&hold_seconds=${simHold}`,
+      );
+      setSim((await response.json()) as Sim);
     } catch {
-      setDetail({ found: false, mint: value, detail: 'No se pudo consultar la API.' });
+      setSim({ ok: false, detail: 'No se pudo simular.' });
     } finally {
-      setLoading(false);
+      setSimLoading(false);
     }
   };
 
-  const snapshot = detail?.snapshot;
+  const snapshot = live?.snapshot;
 
   return (
     <div className="wrap">
       <header>
-        <h1>Previsión de token</h1>
+        <h1>Previsión en vivo</h1>
         <span className="badge read-only">solo lectura</span>
         <a className="badge" href="/">← radar</a>
+        {live && (
+          <span className="status">
+            <span className="dot live" />
+            refresco {live.refresh_ms} ms
+          </span>
+        )}
       </header>
 
       <div className="lookup">
         <input
           value={reference}
-          onChange={(event) => setReference(event.target.value)}
-          onKeyDown={(event) => event.key === 'Enter' && lookup()}
+          onChange={(e) => setReference(e.target.value)}
+          onKeyDown={(e) => e.key === 'Enter' && start()}
           placeholder="Pega el enlace de pump.fun o el mint"
-          aria-label="Enlace o mint del token"
+          aria-label="Enlace o mint"
         />
-        <button onClick={lookup} disabled={loading}>
-          {loading ? 'consultando…' : 'analizar'}
-        </button>
+        <button onClick={start}>seguir en vivo</button>
       </div>
 
-      {detail && !detail.found && <p className="empty">{detail.detail}</p>}
+      {live?.error && !live.candles.length && <p className="empty">RPC: {live.error}</p>}
 
-      {detail?.found && snapshot && (
+      {mint && (
         <>
-          <h2>
-            <span className="symbol">{detail.symbol}</span> {detail.name}
-          </h2>
-
-          <div className="stats">
-            <div className="stat"><div className="label">Precio</div><div className="value">{snapshot.price_sol.toExponential(3)}</div></div>
-            <div className="stat"><div className="label">Market cap</div><div className="value">{snapshot.market_cap_sol.toFixed(2)} SOL</div></div>
-            <div className="stat"><div className="label">Liquidez</div><div className="value">{snapshot.liquidity_sol.toFixed(2)} SOL</div></div>
-            <div className="stat"><div className="label">Para graduar</div><div className="value">{snapshot.sol_to_graduate.toFixed(2)} SOL</div></div>
-            <div className="stat"><div className="label">Progreso</div><div className="value">{snapshot.progress_pct.toFixed(1)}%</div></div>
-          </div>
-
           <div className="charts">
-            <section>
-              <h3>Proyección +4s</h3>
-              <ProjectionChart points={detail.projection ?? []} />
-              <p className="mono">
-                Banda clara: percentiles 10–90. Banda oscura: 25–75. Línea discontinua: mediana.
-              </p>
-            </section>
-            <section>
-              <h3>Precio real observado</h3>
-              <HistoryChart prices={detail.history ?? []} />
-              <p className="mono">Datos on-chain, sin suavizar.</p>
-            </section>
+            <CandleChart candles={live?.projected ?? []} title="Proyección +4s (cono)" projected />
+            <CandleChart candles={live?.candles ?? []} title="Precio real (velas)" projected={false} />
+          </div>
+          <p className="mono charts-note">
+            Izquierda: velas proyectadas del cono de percentiles, NO una predicción. Derecha:
+            velas reales on-chain. Volatilidad medida: {live?.volatility_per_second ?? 0}/s.
+          </p>
+
+          {snapshot && (
+            <>
+              <h2>Capitalización y liquidez (cifras completas)</h2>
+              <div className="fulltable">
+                <div><span className="k">Precio (SOL)</span><span className="v">{snapshot.price_sol_exact}</span></div>
+                <div><span className="k">Market cap (SOL)</span><span className="v">{snapshot.market_cap_sol_exact}</span></div>
+                <div><span className="k">Liquidez (SOL)</span><span className="v">{snapshot.liquidity_sol_exact}</span></div>
+                <div><span className="k">Para graduar</span><span className="v">{snapshot.sol_to_graduate.toFixed(4)} SOL</span></div>
+                <div><span className="k">Cap al graduar</span><span className="v">{snapshot.graduation_market_cap_sol.toFixed(2)} SOL</span></div>
+                <div><span className="k">Progreso</span><span className="v">{snapshot.progress_pct.toFixed(2)}%</span></div>
+                <div><span className="k">Reservas SOL (v)</span><span className="v">{snapshot.virtual_sol_reserves.toLocaleString()}</span></div>
+                <div><span className="k">Reservas token (v)</span><span className="v">{snapshot.virtual_token_reserves.toLocaleString()}</span></div>
+                <div><span className="k">Invariante k</span><span className="v">{snapshot.invariant_k}</span></div>
+                <div><span className="k">Compras / Ventas</span><span className="v">{snapshot.buys} / {snapshot.sells}</span></div>
+                <div><span className="k">Traders únicos</span><span className="v">{snapshot.unique_traders}</span></div>
+                <div><span className="k">Volumen observado</span><span className="v">{snapshot.volume_sol} SOL</span></div>
+              </div>
+
+              <h3>Coste de entrar (price impact)</h3>
+              <div className="impacts">
+                {Object.entries(snapshot.price_impact_bps).map(([size, bps]) => (
+                  <div key={size}><span className="k">{size} SOL</span><span className="v">{(bps / 100).toFixed(2)}%</span></div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <h2>Simulador</h2>
+          <div className="sim-controls">
+            <label>Tamaño (SOL)<input value={simSize} onChange={(e) => setSimSize(e.target.value)} /></label>
+            <label>Mantener (s)<input value={simHold} onChange={(e) => setSimHold(e.target.value)} /></label>
+            <button onClick={simulate} disabled={simLoading || !live?.trades}>
+              {simLoading ? 'simulando…' : 'simular operación'}
+            </button>
           </div>
 
-          <h3>Coste de entrar (price impact)</h3>
-          <table>
-            <thead><tr><th>Tamaño</th><th>Impacto</th></tr></thead>
-            <tbody>
-              {Object.entries(snapshot.price_impact_bps).map(([size, bps]) => (
-                <tr key={size}>
-                  <td className="mono">{size} SOL</td>
-                  <td className="mono">{(bps / 100).toFixed(2)}%</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-
-          <p className="warn disclaimer">{detail.disclaimer}</p>
+          {sim && !sim.ok && <p className="empty">{sim.detail}</p>}
+          {sim?.ok && (
+            <>
+              <div className="stats">
+                <div className="stat"><div className="label">Mediana</div><div className={`value ${(sim.median_sol ?? 0) >= 0 ? 'good' : 'bad'}`}>{(sim.median_sol ?? 0).toFixed(6)} SOL</div></div>
+                <div className="stat"><div className="label">P10 (malo)</div><div className="value bad">{(sim.p10_sol ?? 0).toFixed(6)}</div></div>
+                <div className="stat"><div className="label">P90 (bueno)</div><div className="value good">{(sim.p90_sol ?? 0).toFixed(6)}</div></div>
+                <div className="stat"><div className="label">Corridas en pérdida</div><div className="value">{sim.losing_runs}/{sim.runs}</div></div>
+                <div className="stat"><div className="label">Slippage medio</div><div className="value">{sim.avg_entry_slippage_bps} bps</div></div>
+                <div className="stat"><div className="label">Latencia media</div><div className="value">{sim.avg_latency_ms} ms</div></div>
+              </div>
+              <p className="mono">
+                Peor caso {(sim.worst_sol ?? 0).toFixed(6)} · mejor {(sim.best_sol ?? 0).toFixed(6)} · fees {sim.fees_sol} SOL ·
+                posiciones atrapadas {sim.stuck_positions}. Distribución sobre {sim.runs} corridas
+                con costes reales. Ninguna orden se envía.
+              </p>
+            </>
+          )}
         </>
       )}
 
-      <footer>Sin trading. Esta interfaz no puede abrir ni cerrar ninguna posición.</footer>
+      <footer>Sin trading. Los veredictos son análisis, no recomendaciones. No puede abrir ni cerrar posiciones.</footer>
     </div>
   );
 }
