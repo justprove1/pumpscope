@@ -1,0 +1,468 @@
+{
+  "_fixture_meta": {
+    "captured_at_utc": "2026-08-03T09:44:26.072964+00:00",
+    "source": "https://api.mainnet-beta.solana.com",
+    "method": "getSignaturesForAddress + getTransaction -> TradeEvent",
+    "case": "price_series",
+    "note": "Series de precio REALES reconstruidas de las reservas virtuales que trae cada TradeEvent. Solo direcciones publicas de Solana."
+  },
+  "tokens": [
+    {
+      "mint": "5wT2psFFjyTnwxHnojV4NPCPNoDjwHNGBdPTjv6ipump",
+      "events": [
+        {
+          "t": 1785715037,
+          "vsol": 30059259258,
+          "vtok": 1070884672297204,
+          "side": "buy",
+          "sol": 59259258,
+          "user": "DqegpHYvSjYjM2XW39tZfBW6dMD26cXsHfzcEbqBH3XK"
+        },
+        {
+          "t": 1785715038,
+          "vsol": 48724707988,
+          "vtok": 1069717055582022,
+          "side": "buy",
+          "sol": 15461977,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715038,
+          "vsol": 40905580319,
+          "vtok": 1070121399937509,
+          "side": "buy",
+          "sol": 21439999,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715039,
+          "vsol": 42557044548,
+          "vtok": 1069984816775181,
+          "side": "sell",
+          "sol": 12193243,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715040,
+          "vsol": 49091695758,
+          "vtok": 1069660008822421,
+          "side": "buy",
+          "sol": 12922673,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715041,
+          "vsol": 59503671654,
+          "vtok": 1069211366002619,
+          "side": "buy",
+          "sol": 20598955,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715042,
+          "vsol": 35999606930,
+          "vtok": 1070143236991564,
+          "side": "sell",
+          "sol": 14125509,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715042,
+          "vsol": 43145718194,
+          "vtok": 1069792881970758,
+          "side": "sell",
+          "sol": 32344891,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715043,
+          "vsol": 29335591399,
+          "vtok": 1070482391693116,
+          "side": "buy",
+          "sol": 5101222,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715043,
+          "vsol": 26754056798,
+          "vtok": 1070686501610664,
+          "side": "sell",
+          "sol": 18266142,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715044,
+          "vsol": 32587649216,
+          "vtok": 1070247893669512,
+          "side": "buy",
+          "sol": 6427612,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715045,
+          "vsol": 38257799665,
+          "vtok": 1069879834859031,
+          "side": "buy",
+          "sol": 11210765,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715046,
+          "vsol": 38451277683,
+          "vtok": 1069831219194477,
+          "side": "buy",
+          "sol": 9678371,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715046,
+          "vsol": 33556400301,
+          "vtok": 1070139780999493,
+          "side": "sell",
+          "sol": 9293147,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715050,
+          "vsol": 31283928155,
+          "vtok": 1070225516780543,
+          "side": "sell",
+          "sol": 14166402,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715051,
+          "vsol": 35424666883,
+          "vtok": 1072056125448884,
+          "side": "sell",
+          "sol": 70036378,
+          "user": "DqegpHYvSjYjM2XW39tZfBW6dMD26cXsHfzcEbqBH3XK"
+        },
+        {
+          "t": 1785715051,
+          "vsol": 35494703261,
+          "vtok": 1069940797746088,
+          "side": "buy",
+          "sol": 8324881,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        }
+      ]
+    },
+    {
+      "mint": "FMzZtM1Hh4wJZQxKoh1epx8Sb4312oaQArGd2JFypump",
+      "events": [
+        {
+          "t": 1785715069,
+          "vsol": 4415017325,
+          "vtok": 1086533545763392,
+          "side": "sell",
+          "sol": 79330145,
+          "user": "NoDkJmf5R8bAtt35Cn4Pkyo2vnPSijmRHpriKNLu6BM"
+        },
+        {
+          "t": 1785715075,
+          "vsol": 4532316515,
+          "vtok": 1058413377336131,
+          "side": "buy",
+          "sol": 117299190,
+          "user": "GCi7iWxDbZWZuJHpxU2sGx2n4jRD5gW1FynCESYwKqhS"
+        },
+        {
+          "t": 1785715076,
+          "vsol": 3429549551,
+          "vtok": 1063109082419965,
+          "side": "buy",
+          "sol": 15428580,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715076,
+          "vsol": 2845781204,
+          "vtok": 1068872794508507,
+          "side": "sell",
+          "sol": 44350823,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715080,
+          "vsol": 3546848741,
+          "vtok": 1027950596020459,
+          "side": "buy",
+          "sol": 117299190,
+          "user": "GCi7iWxDbZWZuJHpxU2sGx2n4jRD5gW1FynCESYwKqhS"
+        },
+        {
+          "t": 1785715081,
+          "vsol": 2959372197,
+          "vtok": 1032178834135439,
+          "side": "buy",
+          "sol": 46748346,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715081,
+          "vsol": 2193262253,
+          "vtok": 1054179237053985,
+          "side": "sell",
+          "sol": 16504466,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715081,
+          "vsol": 2469051197,
+          "vtok": 1047132535693081,
+          "side": "sell",
+          "sol": 64973091,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715082,
+          "vsol": 2523379517,
+          "vtok": 1041473600004934,
+          "side": "sell",
+          "sol": 26411299,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715083,
+          "vsol": 1268183006,
+          "vtok": 1069387016969047,
+          "side": "buy",
+          "sol": 2469135,
+          "user": "DngHgGGqwDqWSzAjUpVJV1bK8rr2Mg8Hq1UU5SuJ3yY6"
+        },
+        {
+          "t": 1785715083,
+          "vsol": 1265713871,
+          "vtok": 1071473159740533,
+          "side": "buy",
+          "sol": 4938271,
+          "user": "mhh4jvkS8LgJR6hMr99qaXAAKEPFwMDaj9rtnj6BRE3"
+        },
+        {
+          "t": 1785715083,
+          "vsol": 1260775600,
+          "vtok": 1075669960313570,
+          "side": "buy",
+          "sol": 2469135,
+          "user": "EG5MR11Vrvf3kcwGhbRYRkgpkEcKkk8KRp8hWRbSFCJY"
+        },
+        {
+          "t": 1785715083,
+          "vsol": 1258306465,
+          "vtok": 1077780712618882,
+          "side": "sell",
+          "sol": 17619979,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715083,
+          "vsol": 1559212717,
+          "vtok": 1065601184839460,
+          "side": "sell",
+          "sol": 57134933,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785715085,
+          "vsol": 1197333402,
+          "vtok": 1132665671795814,
+          "side": "sell",
+          "sol": 70849604,
+          "user": "GCi7iWxDbZWZuJHpxU2sGx2n4jRD5gW1FynCESYwKqhS"
+        },
+        {
+          "t": 1785715099,
+          "vsol": 1195106290,
+          "vtok": 1134776424101126,
+          "side": "sell",
+          "sol": 2227112,
+          "user": "EG5MR11Vrvf3kcwGhbRYRkgpkEcKkk8KRp8hWRbSFCJY"
+        },
+        {
+          "t": 1785715109,
+          "vsol": 1192913270,
+          "vtok": 1136862566872612,
+          "side": "sell",
+          "sol": 2193020,
+          "user": "DngHgGGqwDqWSzAjUpVJV1bK8rr2Mg8Hq1UU5SuJ3yY6"
+        },
+        {
+          "t": 1785715384,
+          "vsol": 1188613500,
+          "vtok": 1140975130544602,
+          "side": "sell",
+          "sol": 4299770,
+          "user": "mhh4jvkS8LgJR6hMr99qaXAAKEPFwMDaj9rtnj6BRE3"
+        },
+        {
+          "t": 1785715386,
+          "vsol": 1188527505,
+          "vtok": 1141057685888921,
+          "side": "sell",
+          "sol": 85995,
+          "user": "mhh4jvkS8LgJR6hMr99qaXAAKEPFwMDaj9rtnj6BRE3"
+        },
+        {
+          "t": 1785715389,
+          "vsol": 1188525785,
+          "vtok": 1141059338154529,
+          "side": "sell",
+          "sol": 1720,
+          "user": "mhh4jvkS8LgJR6hMr99qaXAAKEPFwMDaj9rtnj6BRE3"
+        },
+        {
+          "t": 1785715391,
+          "vsol": 1188525755,
+          "vtok": 1141059367445649,
+          "side": "sell",
+          "sol": 30,
+          "user": "mhh4jvkS8LgJR6hMr99qaXAAKEPFwMDaj9rtnj6BRE3"
+        }
+      ]
+    },
+    {
+      "mint": "8SY1dhcCBiDxW4j63TKq5xnt1iypzXbE3Ryiwuq7pump",
+      "events": [
+        {
+          "t": 1785718938,
+          "vsol": 23457168,
+          "vtok": 1000474812921307,
+          "side": "buy",
+          "sol": 219889,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785718976,
+          "vsol": 28827365,
+          "vtok": 814098221622472,
+          "side": "buy",
+          "sol": 5370197,
+          "user": "ARu4n5mFdZogZAravu7CcizaojWnS6oqka37gdLT5SZn"
+        },
+        {
+          "t": 1785718981,
+          "vsol": 36022140,
+          "vtok": 682278290741412,
+          "side": "buy",
+          "sol": 5569606,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785718985,
+          "vsol": 24190982,
+          "vtok": 1015962275694724,
+          "side": "sell",
+          "sol": 11831158,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785718986,
+          "vsol": 23596363,
+          "vtok": 1041564166713924,
+          "side": "sell",
+          "sol": 594619,
+          "user": "BwWK17cbHxwWBKZkUYvzxLcNQ1YVyaFezduWbtm2de6s"
+        },
+        {
+          "t": 1785719044,
+          "vsol": 22096021,
+          "vtok": 1112287419751871,
+          "side": "sell",
+          "sol": 1500342,
+          "user": "DhPYq6RZ6fDyLtUGadMzNRbVNpHgidzLdppboxtWjLC5"
+        },
+        {
+          "t": 1785719184,
+          "vsol": 15709431,
+          "vtok": 1564482330826307,
+          "side": "sell",
+          "sol": 6386590,
+          "user": "ARu4n5mFdZogZAravu7CcizaojWnS6oqka37gdLT5SZn"
+        },
+        {
+          "t": 1785719371,
+          "vsol": 17135227,
+          "vtok": 1434304235429113,
+          "side": "buy",
+          "sol": 1425796,
+          "user": "ARu4n5mFdZogZAravu7CcizaojWnS6oqka37gdLT5SZn"
+        }
+      ]
+    },
+    {
+      "mint": "6adtzcFrKUEELzvtUEh1vVMLFUtJVYaUukTDES6ypump",
+      "events": [
+        {
+          "t": 1785715073,
+          "vsol": 30133117220,
+          "vtok": 1068259873959821,
+          "side": "sell",
+          "sol": 895322335,
+          "user": "GUKd4oA92Z5Mxq1ivcf6bkMdEURbdxY8zA5UWrhsCTh2"
+        },
+        {
+          "t": 1785715073,
+          "vsol": 31028439555,
+          "vtok": 1037435348505246,
+          "side": "sell",
+          "sol": 1078062879,
+          "user": "3K6CCgfVkxGJRLYg1BB2CQLyB5DySGtTLWfzymZe2GP7"
+        },
+        {
+          "t": 1785715079,
+          "vsol": 30000988258,
+          "vtok": 1072964654595082,
+          "side": "sell",
+          "sol": 132128962,
+          "user": "7iwEHSeB1ZBADYrKoiD8VJavz9D7RxioPJabpDUGp6dt"
+        },
+        {
+          "t": 1785715080,
+          "vsol": 30000987657,
+          "vtok": 1072964676107292,
+          "side": "sell",
+          "sol": 601,
+          "user": "6DskyYLmmA9j1Ht5gAKFBtf2dn8uPZgbVJ2zcmyTZfgp"
+        }
+      ]
+    },
+    {
+      "mint": "5p3goLbxBRJHYkLKRHK4zq42MBgryt4YTB5k7zYKpump",
+      "events": [
+        {
+          "t": 1785715062,
+          "vsol": 33017028784,
+          "vtok": 974951447388207,
+          "side": "sell",
+          "sol": 200526588,
+          "user": "GQ6nJxaSB6AtNUNLT8EQd32Pvmpz5A7EzEwxEa2VsXQD"
+        },
+        {
+          "t": 1785715144,
+          "vsol": 30987654322,
+          "vtok": 1038800796845859,
+          "side": "sell",
+          "sol": 1095172650,
+          "user": "3f6Gtst1HbWfyfLk31hzjj9ZPJhr9XPssRAWXsQHXSo6"
+        },
+        {
+          "t": 1785715144,
+          "vsol": 32082826972,
+          "vtok": 1003340510787563,
+          "side": "sell",
+          "sol": 934201812,
+          "user": "8j6NSXZpfMzFriWnG3HKZtEaniB8hCx5iYNGq9znUEgB"
+        },
+        {
+          "t": 1785715148,
+          "vsol": 30000000002,
+          "vtok": 1073000000000000,
+          "side": "sell",
+          "sol": 987654320,
+          "user": "6veYJXLbncGnSuDxh6EsPZLm64AariJemvzAqch12FQi"
+        }
+      ]
+    }
+  ]
+}
