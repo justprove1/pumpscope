@@ -184,6 +184,38 @@ cumple, sin excepción (`SPEC.md` §4.E, §32):
 
 ---
 
+## 6-bis. Decisión: RPC público hasta Fase 4 (3 de agosto de 2026)
+
+**Se opera con el RPC público de Solana. Helius queda aplazado.**
+
+Motivo, con las cifras medidas en este repositorio:
+
+| Medición | Valor |
+|---|---|
+| Volumen del programa Pump.fun | **262 eventos/s**, ~9 KB por notificación |
+| Proyección mensual de una suscripción 24/7 | **~3 TB**, ~63 M de créditos |
+| Facturación de WebSocket en Helius | 2 créditos por 0,1 MB sin comprimir |
+| Coste estimado | **~500 $/mes** (plan Business); el plan gratuito se agota en horas |
+| Latencia con RPC público | **1–2 s** de retraso del proveedor |
+| Latencia de nuestro pipeline | **0,15 ms** (p50) |
+
+Suscribirse a todos los logs y filtrar en nuestro lado significa pagar por transportar
+3 TB/mes de compras y ventas para quedarse con el 0,1 % que son creaciones.
+
+**El retraso de 1–2 s solo penaliza al ejecutar operaciones reales (Fase 6+).** Para detectar,
+analizar, simular y hacer backtesting —Fases 1 a 5— es irrelevante: son consultas sobre datos
+ya almacenados.
+
+Consecuencia declarada: **el objetivo de <1 s de SPEC.md §6 NO se cumple y queda aplazado**,
+no pendiente de arreglo en el código. Nuestro pipeline consume 0,15 ms del presupuesto de
+1000 ms; el resto es del proveedor.
+
+Antes de contratar nada, hay que verificar si **gRPC/LaserStream permite filtrar `create_v2`
+en el servidor**. Si lo permite, el volumen cae de 3 TB a unos pocos MB al mes y hasta el plan
+más barato sobra. Esa comprobación es un requisito previo a cualquier pago.
+
+---
+
 ## 7. Estado de implementación
 
 | Fase | Estado |

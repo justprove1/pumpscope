@@ -94,7 +94,10 @@ Fase 0 entrega **estructura y contratos**, no comportamiento.
 | Interfaces abstractas de proveedores (SPEC.md §4) | ✅ definidas, sin implementación |
 | Modelos de contrato (Pydantic v2) | ✅ definidos |
 | Infraestructura local | ✅ `postgres`, `redis`, `prometheus`, `grafana` arrancan limpios |
-| Detección de tokens, scoring, features | ❌ Fase 1–2 |
+| Detección de tokens en tiempo real | ✅ **Fase 1** — 262 ev/s, pipeline p50 0,15 ms |
+| Dashboard de solo lectura (radar) | ✅ **Fase 1** — en vivo por WebSocket |
+| Objetivo de latencia <1 s (SPEC §6) | ⏸️ **aplazado** — el RPC público añade 1–2 s. Ver DATA_PROVIDERS.md §6-bis |
+| Scoring, features, análisis on-chain | ❌ Fase 2 |
 | Simulador, backtesting | ❌ Fase 3 |
 | Señales, RiskEngine, alertas | ❌ Fase 4 |
 | Modelos ML | ❌ Fase 5 |
