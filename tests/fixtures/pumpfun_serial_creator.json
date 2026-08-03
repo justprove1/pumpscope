@@ -1,0 +1,131 @@
+{
+  "_fixture_meta": {
+    "captured_at_utc": "2026-08-03T01:06:48.547172+00:00",
+    "source": "https://api.mainnet-beta.solana.com",
+    "method": "getSignaturesForAddress(creator) + getTransaction",
+    "case": "serial_creator",
+    "note": "Lanzamientos REALES en serie del mismo creador, capturados de mainnet. Solo direcciones publicas de Solana. NO es prueba de fraude por si solo: es la entrada real de creator_previous_tokens."
+  },
+  "creators": [
+    {
+      "creator": "E24c5R7yHWHmPg1KyBrqTedjgcdRKcj28uwvLBbwi8hv",
+      "launches_observed": 8,
+      "span_seconds": 66333,
+      "signatures_inspected": 22,
+      "launches": [
+        {
+          "signature": "2edVP7qb543BQrwDJFb1NU1ujskxJ8Lea3Qa5hU7GbjXVE28ruFFnbXy34eWhJS7mrKcbn1VkFwxvYKK1whMmAzy",
+          "slot": 436868875,
+          "block_time": 1785717122,
+          "mint": "2yMnQNq1Qnf6Z2D5QrfCfkwdbqMK6AmkQtvibywdpump",
+          "name": "Cate Bank",
+          "symbol": "CATEBANK"
+        },
+        {
+          "signature": "3eCzx2yftYqFhtcPQ8LsXgywzMBUjfUqxz4hADdcjLaLBD3J6WfsvUWttFMcQgxtPrBAUCR8SWbdbgpbHxVA2Fzf",
+          "slot": 436867938,
+          "block_time": 1785716723,
+          "mint": "4WgLdyCj39oiQ2oAXAXQaCFfweSHA46xQJBKHv5Cpump",
+          "name": "Verified Official Coin",
+          "symbol": "VERIFIED"
+        },
+        {
+          "signature": "2NkYKK6An9y2TnLUNNKrw9RvL45cqdruHnfuwJJHZdoARNfjxr4B16Nz65rJmnnJrwoPKeXrK7CkWaxb5V3iUdNk",
+          "slot": 436867111,
+          "block_time": 1785716377,
+          "mint": "2ZkmPnMQMWqnKazzSgHykJ5WKFzQLqMQgZGMdDtapump",
+          "name": "Official Officate Coin",
+          "symbol": "OFFICATE"
+        },
+        {
+          "signature": "QmNnpwPdA7Bc4j9qViTRJJJXoaNp9rucmfc4KwSVF3UzoHedvq3n7UUe91CJtqBjrW3BPLzaCAeJ2uYnLBC4xWE",
+          "slot": 436864847,
+          "block_time": 1785715419,
+          "mint": "Hh24FARrv1WrXeYNHrjZdwNeudtR3gQEssGTJ1vppump",
+          "name": "Official Vamp Coin",
+          "symbol": "VAMP"
+        },
+        {
+          "signature": "3MqiigwnajCUaJQp8fnWnfqHTDNY9Mk8fqGcEssDDqZwFdwcVgLJ51orQEpA9dukpvU35WcVKpJ2yLLRnbu4riuc",
+          "slot": 436863955,
+          "block_time": 1785715041,
+          "mint": "6adtzcFrKUEELzvtUEh1vVMLFUtJVYaUukTDES6ypump",
+          "name": "Official Verified Coin",
+          "symbol": "VERIFIED"
+        },
+        {
+          "signature": "2Qejfr2XZcouJsKnMnRJGrexbYYvjHhLCoxcjznvDsA4nAzxqf1hwKRfq71JU48h1g1CndFm1zHxFmywTbvvnEAj",
+          "slot": 436862968,
+          "block_time": 1785714624,
+          "mint": "62QJK911XQyP2mYaVPBzMgoGdNy6HDJYnYxnohQbpump",
+          "name": "Official Unofficial Coin",
+          "symbol": "UNOFFICIAL"
+        },
+        {
+          "signature": "46se9PRvYGBCmZnL9QbWN1XBC9qETu4HAuw5yG8ZcRNmLArfnUKuR2xbc2oqkWwW1ANPLBpSk5PoGygjCzf7wPW9",
+          "slot": 436862745,
+          "block_time": 1785714531,
+          "mint": "9FYnaNyHan29TBGDPxBCrrXaUqJ8jvmXZKi1e6pjpump",
+          "name": "Official Unofficial Coin",
+          "symbol": "UNOFFICIAL"
+        },
+        {
+          "signature": "65uKCQPV7giW4LPKYLssLYhRfoPFL4rL6EW9jiRXYAwjgzqfv8TW6deDuuPR9urmW34jjtqyU7Kmq8stPwKZGjTi",
+          "slot": 436711618,
+          "block_time": 1785650789,
+          "mint": "GQxBdoxsN1FzRrfNiniC4EeWjid5f4sfDpZSrPzepump",
+          "name": "Mensa Kid",
+          "symbol": "MENSAKID"
+        }
+      ]
+    },
+    {
+      "creator": "DqegpHYvSjYjM2XW39tZfBW6dMD26cXsHfzcEbqBH3XK",
+      "launches_observed": 5,
+      "span_seconds": 902,
+      "signatures_inspected": 22,
+      "launches": [
+        {
+          "signature": "F9K3S3WSBjSSLYJgZHPg7WXAHxAbZ3TqWeRvFUCMUmQFkA39dg4e77uEkgYuhqyT9muJkN6aKEGHJ8NYBmC8tRh",
+          "slot": 436863946,
+          "block_time": 1785715037,
+          "mint": "5wT2psFFjyTnwxHnojV4NPCPNoDjwHNGBdPTjv6ipump",
+          "name": "Kung Fu Cat",
+          "symbol": "WAAAA"
+        },
+        {
+          "signature": "3V8rPPz9uYKk4pnpHdTDVoqBsLZsRS4GMSTXGMGxjzkR2Q7TYaPm35tbttqmpXABLFNUXUP5SMkXK8zUbzUTZ16i",
+          "slot": 436863727,
+          "block_time": 1785714944,
+          "mint": "2MHPh1AD8XRTbYTjxmstLpcw1GVm3FxYQoMHcA6Epump",
+          "name": "Ichikawa Monkey",
+          "symbol": "IKAWA"
+        },
+        {
+          "signature": "5ngAyYhSH4cpajYtfmHUFjzEvKUZjdZ99a55MKXUC1bmoFiUmQk6y12c22jWytoKTSaobNM6MYa7wpUyMD6hp3yX",
+          "slot": 436863432,
+          "block_time": 1785714819,
+          "mint": "EcNMCjDTRyqTEniUwW41qnUUhQMPZ3pmrE94rYs7pump",
+          "name": "GLORP",
+          "symbol": "GLORP"
+        },
+        {
+          "signature": "a6hbmCDf96zZafb8zqJNaKgdb7ffZLGwHRDw5HtCHPSx7bbFdbphXwPfhEhuqwSVR4TjJPdTpQQ5gWzdtdCdVM7",
+          "slot": 436862817,
+          "block_time": 1785714561,
+          "mint": "DBzYVxj49drU4HMQ9hA7b3zRZo9hD6GdMr9W46TQpump",
+          "name": "Ichikawa Monkey",
+          "symbol": "IKAWA"
+        },
+        {
+          "signature": "4VALGZgvaiMo9MheDSG99jqsdskGvGLDBnMzAsb5b9mcNb8sJFax3Tqy3hp4HxHrkKtyFvk2YTxrwmFze9ozNxF1",
+          "slot": 436861810,
+          "block_time": 1785714135,
+          "mint": "4wQwyhZ3teKF2Aj1fopUzBKyRdm26B6KZDESMojwpump",
+          "name": "Zen Capybara",
+          "symbol": "CAPY"
+        }
+      ]
+    }
+  ]
+}
