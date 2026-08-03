@@ -18,17 +18,11 @@ comparacion se hace entre envelopes, y la divergencia baja la confianza de ambas
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
-T = TypeVar("T")
 
-
-# UP046: la sintaxis PEP 695 (`class Observation[T]`) es la correcta para Python 3.12, pero
-# mypy no la PARSEA cuando corre sobre un interprete anterior, y la maquina de desarrollo
-# actual solo tiene 3.9. Se migra en cuanto el toolchain corra sobre 3.12.
-class Observation(BaseModel, Generic[T]):  # noqa: UP046
+class Observation[T](BaseModel):
     """Un dato observado, con su procedencia y su fiabilidad."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
