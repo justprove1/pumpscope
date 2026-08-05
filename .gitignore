@@ -38,6 +38,17 @@ replay-cache/
 # INSTRUCCIONES.md: los FASE-*.md NO van en el repo, son prompts que se pegan a mano.
 prompts-fase/
 
+# --- Bundle de escritorio ----------------------------------------------------
+# Pumpscope.app lo genera infrastructure/desktop/construir_app.sh copiando el
+# codigo de ps/ y serve.py: es salida de build, no fuente. Se versiona solo el
+# icono, que el script lee del bundle para reconstruirlo.
+/Pumpscope.app/*
+!/Pumpscope.app/Contents/
+/Pumpscope.app/Contents/*
+!/Pumpscope.app/Contents/Resources/
+/Pumpscope.app/Contents/Resources/*
+!/Pumpscope.app/Contents/Resources/appicon.icns
+
 # --- SO / editor -------------------------------------------------------------
 .DS_Store
 .idea/

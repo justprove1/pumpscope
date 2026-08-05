@@ -1,0 +1,1562 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pumpscope Trader</title>
+<!--
+  Panel de operativa sobre Pump.fun. Solo lo que hace falta para operar:
+  comprar, vender, stop loss, y el estado del mercado del token en vivo.
+
+  La transaccion la construye la API y la FIRMA TU CARTERA. Aqui no hay ninguna clave ni
+  acceso a ella: cada operacion te la ensena Phantom y no sale nada sin que la apruebes.
+-->
+<style>
+  :root{--bg:#0b0e14;--panel:#131722;--border:#232838;--text:#d7dce8;--muted:#7d8699;
+        --accent:#4ea1ff;--ok:#2ecc71;--warn:#f5a623;--down:#e05561}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+       font:14px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;padding:14px}
+  h1{font-size:15px;margin:0 0 2px;letter-spacing:.5px}
+
+  /* --- Zona de arrastre de la ventana ------------------------------------
+     Solo existe dentro del programa; en el navegador sobra y por eso nace oculta.
+     El programa no lleva barra de titulo del sistema —una franja gris sobre un panel negro
+     canta que dentro hay una pagina web—, y quitarla tiene un precio: macOS deja de saber
+     por donde se coge la ventana. Esta franja se lo dice. */
+  .arrastre{display:none}
+  html.programa .arrastre{display:block;position:fixed;top:0;left:0;right:0;height:34px;
+        -webkit-app-region:drag;z-index:50}
+  /* El contenido baja para no quedar debajo de los tres botones de la esquina. */
+  html.programa body{padding-top:44px}
+  /* **Nada que se pueda pulsar puede vivir en una zona de arrastre.** Si lo hace, macOS se
+     queda con el gesto y el clic nunca llega al boton: quedaria un COMPRAR que no responde
+     y ninguna pista de por que. Se exceptuan todos, no solo los de arriba, porque la franja
+     es fija y cualquier cosa puede acabar pasando por debajo al hacer scroll. */
+  html.programa button,html.programa input,html.programa select,html.programa a,
+  html.programa textarea{-webkit-app-region:no-drag}
+  .sub{font-size:11px;color:var(--muted);margin-bottom:12px}
+  .badge{font-size:10px;padding:2px 7px;border-radius:3px;border:1px solid var(--ok);
+         color:var(--ok);text-transform:uppercase}
+  .card{background:var(--panel);border:1px solid var(--border);border-radius:6px;
+        padding:12px;margin-bottom:10px}
+  label{display:block;font-size:10px;color:var(--muted);text-transform:uppercase;
+        letter-spacing:.05em;margin-bottom:4px}
+  input,select{width:100%;background:var(--bg);border:1px solid var(--border);color:var(--text);
+        padding:8px 10px;border-radius:4px;font:inherit}
+  input:focus,select:focus{outline:none;border-color:var(--accent)}
+  button{border:0;border-radius:5px;padding:11px;font:inherit;font-weight:bold;cursor:pointer;width:100%}
+  .buy{background:var(--ok);color:#06210f}
+  .sell{background:var(--down);color:#2a0508}
+  .wallet{background:var(--accent);color:#04121f}
+  .ghost{background:transparent;border:1px solid var(--border);color:var(--muted);font-weight:normal}
+  button:disabled{opacity:.35;cursor:not-allowed}
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+  .big{font-size:26px;font-weight:bold;font-variant-numeric:tabular-nums}
+  .k{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .v{font-variant-numeric:tabular-nums}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;margin-top:8px}
+  .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px 12px;margin-top:8px}
+  .grid4{display:grid;grid-template-columns:repeat(4,1fr);gap:6px 12px;margin-top:10px}
+  .cabecera{display:grid;grid-template-columns:1fr 1fr;gap:12px;align-items:start}
+  /* --- Ventana pequena ----------------------------------------------------
+     La ventana se puede encoger hasta 340x380 para dejarla en una esquina vigilando el stop.
+     A esos tamanos una rejilla de tres o cuatro columnas no se lee: los numeros se parten y
+     los rotulos se apilan letra a letra. Se va soltando columnas por tramos.
+
+     Los cortes estan donde el contenido se rompe, no en anchos de movil de catalogo: 720 es
+     donde las dos columnas de la cabecera dejan de caber, 560 donde se parten las de cuatro,
+     y 430 donde ya no cabe nada en paralelo. */
+  @media (max-width:720px){
+    .cabecera{grid-template-columns:1fr}
+    .grid3,.row3{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:560px){
+    .grid4{grid-template-columns:1fr 1fr}
+    body{padding:10px}
+    html.programa body{padding-top:40px}
+  }
+  @media (max-width:430px){
+    /* Una sola columna. Los botones de operar se quedan a lo ancho: son los que hay que
+       acertar sin mirar, y un boton estrecho es un fallo esperando a pasar. */
+    .row,.row3,.grid,.grid3,.grid4{grid-template-columns:1fr}
+    body{padding:8px;font-size:13px}
+    html.programa body{padding-top:38px}
+    .card{padding:10px;margin-bottom:8px}
+    h1{font-size:14px}
+  }
+  .good{color:var(--ok)} .bad{color:var(--down)} .warn{color:var(--warn)}
+  .muted{color:var(--muted)}
+  .hint{font-size:10.5px;color:var(--muted);line-height:1.45;margin-top:8px}
+  a{color:var(--accent)}
+  .stopbar{height:5px;background:var(--border);border-radius:3px;overflow:hidden;margin-top:6px}
+  .stopfill{height:100%;background:var(--ok);transition:width .3s,background .3s}
+  /* Presion compradora frente a vendedora, en una sola barra. */
+  .presion{display:flex;height:16px;border-radius:3px;overflow:hidden;margin-top:6px;
+           background:var(--border);font-size:9px;font-weight:bold}
+  .presion span{display:flex;align-items:center;justify-content:center;transition:width .4s}
+  .pcompra{background:rgba(46,204,113,.85);color:#06210f}
+  .pventa{background:rgba(224,85,97,.85);color:#2a0508}
+  .vivo{display:inline-block;width:6px;height:6px;border-radius:50%;background:var(--muted);
+        margin-right:5px;vertical-align:middle}
+  .vivo.on{background:var(--ok);box-shadow:0 0 6px var(--ok)}
+  .pie{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
+  .mirar{display:inline-flex;align-items:center;gap:7px;margin:0;cursor:pointer;
+         font-size:11px;color:var(--text);text-transform:none;letter-spacing:0;
+         border:1px solid var(--border);border-radius:5px;padding:5px 10px}
+  .mirar:hover{border-color:var(--accent)}
+  .mirar input{width:auto;margin:0;accent-color:var(--accent)}
+  .simulada{font-size:10px;padding:2px 7px;border-radius:3px;margin-left:8px;
+            border:1px solid var(--accent);color:var(--accent);text-transform:uppercase}
+  /* Destello del aviso de ballena: llama la atención sin ser un modal que hay que cerrar. */
+  .destello{animation:latir 0.6s ease-in-out 3}
+  @keyframes latir{
+    0%,100%{background:transparent}
+    50%{background:rgba(46,204,113,.18)}
+  }
+  /* Selector de moneda embebido en la etiqueta: ocupa lo justo y no roba una columna. */
+  .mini{width:auto;display:inline-block;padding:1px 4px;font-size:10px;
+        background:var(--panel);border-color:var(--border);vertical-align:middle}
+  .acc-compra{color:var(--ok)} .acc-vende{color:var(--down)}
+  .acc-manten{color:var(--text)} .acc-evita{color:var(--warn)}
+</style>
+</head>
+<body>
+<!-- Por aqui se coge la ventana para moverla. Vacia a proposito: es superficie, no interfaz. -->
+<div class="arrastre"></div>
+
+<h1>Panel de operativa <span class="badge" id="modo">compra real</span></h1>
+<div class="sub" id="sub">Compra y venta reales en Pump.fun. Firma tu cartera; aquí no hay claves.</div>
+
+<!-- Cartera -->
+<div class="card">
+  <div class="row">
+    <div>
+      <div class="k">Cartera</div>
+      <div class="v" id="wallet">sin conectar</div>
+    </div>
+    <div><button class="wallet" id="btnWallet">CONECTAR PHANTOM</button></div>
+  </div>
+  <div class="hint" id="walletHint">
+    Necesitas Phantom instalado. Cada compra y cada venta te la enseña la cartera antes de salir.
+  </div>
+</div>
+
+<!-- Operativa -->
+<div class="card">
+  <label>Token (mint o enlace de pump.fun)</label>
+  <input id="mint" placeholder="Pega el mint…" />
+  <div class="row3" style="margin-top:10px">
+    <div>
+      <label>A meter <select id="moneda" class="mini"><option value="eur">€</option><option value="usd">$</option><option value="sol">◎ SOL</option></select></label>
+      <input id="importe" value="20" />
+      <div class="hint" id="equivalencia" style="margin-top:4px">—</div>
+    </div>
+    <div>
+      <label title="Sobre las 113 estampidas grabadas NINGUNA configuración sale ganando. Lo único robusto es que el stop evita el desastre: aguantar pierde 1.156 €, un trailing pierde 30-85 €. Es un limitador de pérdidas, no una ventaja.">Tipo de stop ⓘ</label>
+      <select id="tipoStop" title="Híbrido: trailing como red + asegurar beneficio con vela roja estando en verde (medido −64 €).&#10;Solo trailing: la red sola, lo menos malo (−30 € al 15%, −81 € al 20%).&#10;Solo vela roja: NO es una estrategia, sale en menos de 2 s en 73 de 113 casos.">
+        <option value="hibrido">Híbrido</option>
+        <option value="trailing">Solo trailing</option>
+        <option value="vela">Solo vela roja ⚠</option>
+      </select>
+    </div>
+    <div><label id="lblStop">Trailing (%)</label><input id="stop" value="15" title="Caída desde el MÁXIMO alcanzado, no desde tu entrada. Ojo: no es el mismo número que el resultado — ese arranca en −4,5% por los costes de ida y vuelta, así que puedes ver −7% con el trailing al 3% sin que haya saltado nada mal. 15% fue lo mejor en las dos muestras medidas." /></div>
+  </div>
+  <div class="row3" style="margin-top:10px">
+    <div><label>Slippage (%)</label><input id="slip" value="10" /></div>
+    <div id="cajaMargen"><label>Asegurar desde (+%)</label><input id="margen" value="15" /></div>
+    <div>
+      <label id="lblStopLoss" title="Caída desde TU ENTRADA, no desde el máximo. Es el suelo duro y actúa en los tres modos. OJO: el máximo arranca en tu entrada, así que la caída desde el máximo es SIEMPRE mayor o igual que la caída desde la entrada. Si pones el stop loss por encima del trailing, el trailing salta siempre antes y el suelo no sirve de nada. Déjalo en 0 para desactivarlo.">Stop loss (%) ⓘ</label>
+      <input id="stopLoss" value="10" />
+    </div>
+    <div>
+      <label title="Avisa cuando una cartera que concentra volumen ACUMULA en este token. «Grande» se mide relativo al token —35% del volumen reciente, o una operación 5 veces mayor que la mediana— más este mínimo en SOL, para que en un token muerto no salte cualquier cosa. 0 desactiva el aviso.">Aviso ballena (◎) ⓘ</label>
+      <input id="minBallena" value="0.5" />
+    </div>
+  </div>
+  <div class="row" style="margin-top:10px">
+    <button class="buy" id="btnComprar">COMPRAR</button>
+    <button class="sell" id="btnVender" disabled>LIQUIDAR TODO</button>
+  </div>
+  <div class="row3" style="margin-top:8px">
+    <button class="ghost" id="btnV25" disabled>vender 25%</button>
+    <button class="ghost" id="btnV50" disabled>vender 50%</button>
+    <button class="ghost" id="btnStop" title="El stop avisa y deja la venta lista a un clic; no vende mientras no estás, porque firmar exige que estés delante. Púlsalo para rearmarlo desde el precio actual.">stop: —</button>
+  </div>
+  <div class="hint" id="atajoAviso" style="min-height:14px;color:var(--accent)"></div>
+</div>
+
+<!-- Resultado, lectura del token y presion de venta: todo lo que hay que mirar mientras se
+     opera, junto y sin tener que bajar. Lo demas va debajo. -->
+<div class="card">
+  <div class="cabecera">
+    <div>
+      <div class="k">Resultado <span id="marcaSim"></span></div>
+      <div class="big" id="pnl">—</div>
+    </div>
+    <div>
+      <div class="k">Lectura del token</div>
+      <div class="big" id="accion">—</div>
+      <div class="k" id="confianza">—</div>
+    </div>
+  </div>
+
+  <div class="grid4">
+    <div><div class="k">Entrada</div><div class="v" id="entrada">—</div></div>
+    <div><div class="k">Actual</div><div class="v" id="actual">—</div></div>
+    <div><div class="k">Máximo</div><div class="v" id="maximo">—</div></div>
+    <div>
+      <div class="k" title="El trailing mide la caída desde el MÁXIMO alcanzado, no desde tu entrada, y no es lo mismo que el resultado: ese incluye 4,5% de costes de ida y vuelta.">Caída desde máximo ⓘ</div>
+      <div class="v" id="stopEn">—</div>
+    </div>
+  </div>
+  <div class="stopbar"><div class="stopfill" id="stopFill" style="width:100%"></div></div>
+
+  <div class="k" style="margin-top:10px">Presión · compra frente a venta</div>
+  <div class="presion"><span class="pcompra" id="pc" style="width:50%"></span><span class="pventa" id="pv" style="width:50%"></span></div>
+
+  <div class="hint" id="estado">Sin posición abierta.</div>
+  <div class="hint" id="razon">Pega un token para leerlo.</div>
+  <div class="hint" id="rebote"></div>
+  <div class="hint" id="ballena"></div>
+</div>
+
+<!-- Mercado en vivo -->
+<div class="card">
+  <div class="k"><span class="vivo" id="latido"></span>Mercado en vivo <span class="muted" id="refresco"></span></div>
+  <div class="grid3">
+    <div><div class="k">Liquidez</div><div class="v" id="liquidez">—</div></div>
+    <div><div class="k">Volumen</div><div class="v" id="volumen">—</div></div>
+    <div><div class="k">Capitalización</div><div class="v" id="cap">—</div></div>
+    <div><div class="k">Compradores</div><div class="v good" id="compradores">—</div></div>
+    <div><div class="k">Vendedores</div><div class="v bad" id="vendedores">—</div></div>
+    <div><div class="k">Ritmo</div><div class="v" id="ritmo">—</div></div>
+    <div><div class="k">Entra</div><div class="v good" id="entra">—</div></div>
+    <div><div class="k">Sale</div><div class="v bad" id="sale">—</div></div>
+    <div><div class="k">Neto</div><div class="v" id="neto">—</div></div>
+    <div><div class="k">Última vela</div><div class="v" id="ultimaVela">—</div></div>
+  </div>
+  <div class="hint" id="mercadoHint">Pega un token para ver su mercado.</div>
+</div>
+
+<div class="hint pie">
+  Ver el token en <a id="linkPump" href="https://pump.fun" target="_blank">pump.fun</a>.
+  <label class="mirar" id="cajaAuto" title="Al saltar el stop, la venta se lanza sola y Phantom se abre pidiéndote la firma. Te ahorra ver el aviso y pulsar: solo apruebas. NO vende si no estás delante — la firma sigue siendo tuya.">
+    <input type="checkbox" id="stopAuto" />
+    <span>Stop automático — abre Phantom solo</span>
+  </label>
+  <label class="mirar" title="DOBLE toque: ⇧⇧ compra, ⌘⌘ vende (dos toques en menos de medio segundo). Solo funcionan si no estás escribiendo en un campo, y no disparan si pulsas otra tecla a la vez: ⌘V para pegar el mint es seguro.">
+    <input type="checkbox" id="atajos" checked />
+    <span>Atajos: ⇧⇧ comprar · ⌘⌘ vender</span>
+  </label>
+  <label class="mirar" title="Abre la posición SIN comprar: el resultado, el máximo y el stop funcionan igual, pero no sale ni un céntimo ni hace falta cartera. Para leer el mercado antes de meter dinero.">
+    <input type="checkbox" id="soloMirar" />
+    <span>Solo mirar — sin gastar dinero</span>
+  </label>
+</div>
+
+<script>
+// Dentro del programa de escritorio el panel lo sirve la propia API, asi que se le habla en
+// relativo: mismo origen, sin CORS y sin puerto que acertar. Solo cuando el panel se abre por
+// su cuenta —el nginx del docker-compose, en el 4000— hay que decirle donde vive la API.
+const EN_PROGRAMA = !(location.port === '4000' || location.protocol === 'file:');
+const API = EN_PROGRAMA ? '' : 'http://localhost:8000';
+
+// Enciende la franja de arrastre y el hueco para los botones de la esquina. Se hace desde JS
+// y no con una media query porque no hay ninguna que distinga «esto es una ventana de
+// programa» de «esto es una pestaña del navegador».
+if(EN_PROGRAMA) document.documentElement.classList.add('programa');
+// Capitalizacion con la que nace todo token de pump.fun. Es tambien el valor por defecto de
+// la cache del backend, asi que verla con una posicion muy por encima significa «no hay
+// dato», no «se ha desplomado».
+const BIRTH = 27.96;
+
+let pos = null;          // {mint, symbol, sizeEur, entryCap, peakCap, feeBps}
+let precioSol = null;    // EUR por SOL
+let precioUsd = null;    // USD por SOL
+let wallet = null;
+// La cartera CONCRETA que dio la dirección. Se guarda para firmar con esa misma: si se
+// vuelve a buscar y responde otra, la transacción llevaría un pagador distinto del que
+// firma, y no habría forma de enviarla.
+let carteraFirmante = null;
+let avisado = false;
+let stopArmado = true;
+let ultimoCalentado = null;
+let operando = false;
+
+const $ = id => document.getElementById(id);
+
+/** Recuerda el token y los ajustes entre recargas.
+ *
+ *  Una recarga vaciaba el campo y al pulsar comprar salia «Falta el mint», que parece un
+ *  fallo del panel cuando en realidad es que se acaba de perder lo que habias escrito. */
+const RECUERDA = ['mint','importe','stop','stopLoss','slip','margen','tipoStop','minBallena','moneda'];
+// Los interruptores se guardan aparte: su valor es `checked`, no `value`.
+const INTERRUPTORES = ['stopAuto','atajos','soloMirar'];
+
+function guardarAjustes(){
+  try{
+    const datos = {};
+    RECUERDA.forEach(id => { datos[id] = $(id).value; });
+    INTERRUPTORES.forEach(id => { datos['#' + id] = $(id).checked; });
+    localStorage.setItem('panel', JSON.stringify(datos));
+  }catch{}
+}
+
+function recuperarAjustes(){
+  try{
+    const datos = JSON.parse(localStorage.getItem('panel') || '{}');
+    RECUERDA.forEach(id => { if(datos[id] !== undefined && datos[id] !== '') $(id).value = datos[id]; });
+    INTERRUPTORES.forEach(id => { if(datos['#' + id] !== undefined) $(id).checked = !!datos['#' + id]; });
+  }catch{}
+}
+const num = v => Number((v||'').toString().replace(',','.'));
+const ent = n => Math.round(n).toLocaleString('es-ES');
+const dec = (n,d=2) => n.toLocaleString('es-ES',{minimumFractionDigits:d,maximumFractionDigits:d});
+
+// --- Moneda -----------------------------------------------------------------
+//
+// Todo se opera en SOL: es lo que la cadena mueve. Euros y dólares son solo una forma de
+// leerlo, y por eso la conversión vive aquí y no se cuela en el cálculo de las órdenes.
+
+const SIMBOLO = {eur: '€', usd: '$', sol: '◎'};
+
+/** Unidades de la moneda elegida por cada SOL. `null` si aún no se sabe el precio. */
+function tasa(){
+  const m = $('moneda') ? $('moneda').value : 'eur';
+  if(m === 'sol') return 1;
+  const p = (m === 'usd') ? precioUsd : precioSol;
+  return (p && p > 0) ? p : null;
+}
+
+/** Formatea un importe YA en la moneda elegida. */
+function fiat(n){
+  const m = $('moneda') ? $('moneda').value : 'eur';
+  // SOL necesita más decimales: 0,27 ◎ y 0,275 ◎ no son lo mismo con estos importes.
+  return (m === 'sol' ? dec(n,3) : dec(n,2)) + ' ' + SIMBOLO[m];
+}
+
+/** Convierte una cantidad de SOL a la moneda elegida. Nunca inventa: sin precio, dice SOL. */
+function dinero(sol){
+  if(sol === null || sol === undefined || !isFinite(sol)) return '—';
+  const t = tasa();
+  if(t === null) return dec(sol,3) + ' ◎';
+  return fiat(sol * t);
+}
+
+/** Formatea el resultado de la posición en la moneda con la que se ENTRÓ.
+ *
+ *  No en la que esté seleccionada ahora: cambiar el desplegable a mitad de una operación no
+ *  puede cambiar la cifra de lo que llevas ganado o perdido. Sería el mismo dinero contado
+ *  de otra forma, y en pantalla parecería que algo se ha movido cuando no se ha movido nada.
+ */
+function fiatPos(n){
+  const m = (pos && pos.moneda) ? pos.moneda : 'eur';
+  return (m === 'sol' ? dec(n,4) : dec(n,2)) + ' ' + SIMBOLO[m];
+}
+
+/** Mantiene visible a cuánto equivale lo que vas a meter, en las tres unidades. */
+function refrescarEquivalencia(){
+  const importe = num($('importe').value);
+  const m = $('moneda').value;
+  if(!(importe > 0)){ $('equivalencia').textContent = '—'; return; }
+  if(!precioSol || !precioUsd){
+    $('equivalencia').textContent = 'sin precio de SOL todavía…';
+    return;
+  }
+  const sol = (m === 'sol') ? importe
+            : importe / (m === 'usd' ? precioUsd : precioSol);
+  const partes = [];
+  if(m !== 'sol') partes.push(`${dec(sol,4)} ◎`);
+  if(m !== 'eur') partes.push(`${dec(sol*precioSol,2)} €`);
+  if(m !== 'usd') partes.push(`${dec(sol*precioUsd,2)} $`);
+  $('equivalencia').textContent = '≈ ' + partes.join('  ·  ') +
+    `   (1 ◎ = ${dec(precioSol,2)} € = ${dec(precioUsd,2)} $)`;
+}
+
+/** Saca el mint de lo que sea que se pegue: la direccion pelada, o un enlace de pump.fun,
+ *  Solscan o DexScreener.
+ *
+ *  Se coge el ULTIMO trozo no vacio: quitar solo una barra final dejaba vacio un enlace
+ *  acabado en «//», y entonces el panel decia «Falta el mint» con el campo lleno. */
+function limpiarMint(v){
+  const limpio = (v || '').trim().split(/[?#]/)[0];
+  const trozos = limpio.split('/').filter(Boolean);
+  return trozos.length ? trozos[trozos.length - 1] : '';
+}
+
+/** La cartera que va a firmar, y de cual se trata.
+ *
+ *  No basta con mirar `isPhantom`: el monedero integrado de Brave —y algún otro— pone esa
+ *  bandera para pasar por Phantom ante las webs. Si se coge el primero que la lleve, se
+ *  acaba pidiendo la firma a una cartera que el usuario ni sabe que tiene, y el fallo
+ *  aparece como «conexión cancelada» sin explicar nada. Phantom de verdad se anuncia en
+ *  `window.phantom.solana`, así que ese tiene preferencia. */
+function carteraDisponible(){
+  const ph = window.phantom && window.phantom.solana;
+  if(ph) return {p: ph, nombre: 'Phantom', esPhantom: true};
+
+  const w = window.solana;
+  if(!w) return null;
+  const nombre = w.isBraveWallet ? 'el monedero de Brave'
+               : w.isPhantom     ? 'una cartera que dice ser Phantom'
+               : 'una cartera desconocida';
+  return {p: w, nombre, esPhantom: false};
+}
+
+function proveedor(){
+  const c = carteraDisponible();
+  return c ? c.p : null;
+}
+
+const decir = (html, clase) => {
+  $('estado').innerHTML = clase ? `<span class="${clase}">${html}</span>` : html;
+};
+
+/** Token que se está mirando: el de la posición abierta manda sobre el del cuadro. */
+const mintActivo = () => pos ? pos.mint : limpiarMint($('mint').value);
+
+// --- Velas -----------------------------------------------------------------
+
+/** Caída DENTRO de una vela, en %. Cero si la vela es verde.
+ *
+ *  Se mide el cuerpo y no solo el color porque las velas son de un segundo: en ese plazo
+ *  casi cualquier token tiene rojos de ruido, y salir en el primero es salir siempre. El
+ *  cuerpo mínimo es lo que separa una caída real de un tick a la baja. */
+function cuerpoRojo(c){
+  if(!c || !c.open || c.close >= c.open) return 0;
+  return ((c.open - c.close) / c.open) * 100;
+}
+
+/** Separa la vela que se está formando de las ya cerradas.
+ *
+ *  La última del array es el segundo en curso: aún puede cambiar de color antes de cerrar.
+ *  Mezclarla con las cerradas haría que el modo «vela cerrada» disparase con algo que
+ *  todavía no lo está. */
+function analizarVelas(candles){
+  const reales = (candles || []).filter(c => !c.projected);
+  if(!reales.length) return {formando:null, cerradas:[]};
+  return {formando: reales[reales.length-1], cerradas: reales.slice(0, -1)};
+}
+
+/** El stop trabaja sobre la ÚLTIMA lectura, sin suavizar.
+ *
+ *  Se probó suavizar con la mediana de las 9 últimas lecturas para que un pico de ventas
+ *  aislado no disparase el stop por ruido. Suena bien y sale mal: medido sobre las 113
+ *  estampidas grabadas con serie de precios, la mediana empeora el resultado de −81 € a
+ *  −486 €, y sube el tiempo en posición de 8 s a 17 s de mediana. El motivo es mecánico: la
+ *  mediana va por detrás del precio, así que la salida llega tarde, y en un desplome rápido
+ *  llegar tarde es justo lo que hay que evitar. Solo 1 de 113 salidas ocurría pronto.
+ *
+ *  Se deja escrito para que nadie lo vuelva a "arreglar" sin volver a medirlo. */
+let lecturas = [];
+
+function empujarLectura(cap){
+  lecturas.push(cap);
+  if(lecturas.length > 30) lecturas.shift();   // solo para el histórico en pantalla
+  return cap;
+}
+
+/** ¿Ha saltado el stop? Se lee del formulario en cada comprobación: lo que se ve en
+ *  pantalla es siempre la regla que está activa.
+ *
+ *  El híbrido es lo que mejor salió en el backtest sobre las estampidas grabadas: el
+ *  trailing hace de red de seguridad y, cuando ya se gana lo suficiente, una vela roja
+ *  basta para asegurar el beneficio en vez de devolverlo. */
+function stopDisparado(info, caidaDesdeMaximo, gananciaPct, caidaDesdeEntrada){
+  return motivoStop(info, caidaDesdeMaximo, gananciaPct, caidaDesdeEntrada) !== null;
+}
+
+/** Por qué saltaría el stop, o `null` si no salta.
+ *
+ *  Una sola función decide Y explica. Antes eran dos, y podían discrepar: una decía que
+ *  saltaba y la otra daba un motivo de otra regla. Con dinero delante, un aviso que no
+ *  corresponde a lo que ha pasado es peor que no avisar.
+ *
+ *  El orden importa: se comprueba primero el suelo duro, porque es el que manda.
+ */
+function motivoStop(info, caidaDesdeMaximo, gananciaPct, caidaDesdeEntrada){
+  const modo     = $('tipoStop').value;
+  const trailing = num($('stop').value);
+  const suelo    = num($('stopLoss').value);
+  const margen   = num($('margen').value);
+
+  // 1. STOP LOSS: caída desde TU ENTRADA. Es el suelo duro y actúa en los TRES modos.
+  //    El trailing solo mira el máximo, así que en un token que cae desde el primer segundo
+  //    —sin llegar a hacer máximo— nunca dispararía. Este sí.
+  if(suelo > 0 && Number.isFinite(caidaDesdeEntrada) && caidaDesdeEntrada >= suelo){
+    return `stop loss: ha caído ${caidaDesdeEntrada.toFixed(1)}% desde tu entrada`;
+  }
+
+  // 2. Modo «solo vela roja»: a partir de aquí solo mira el color.
+  const ultima = info.cerradas.length ? info.cerradas[info.cerradas.length-1] : null;
+  const velaRoja = cuerpoRojo(ultima) > 0;
+  if(modo === 'vela') return velaRoja ? 'vela roja cerrada' : null;
+
+  // 3. TRAILING: caída desde el máximo alcanzado.
+  if(trailing > 0 && caidaDesdeMaximo >= trailing){
+    return `trailing: ha caído ${caidaDesdeMaximo.toFixed(1)}% desde el máximo`;
+  }
+  if(modo === 'trailing') return null;
+
+  // 4. Híbrido: asegurar beneficio con una vela roja estando por encima del margen.
+  if(margen > 0 && gananciaPct >= margen && velaRoja){
+    return `vela roja con la posición en +${gananciaPct.toFixed(1)}%: asegura el beneficio`;
+  }
+  return null;
+}
+
+/** Ajusta las etiquetas al modo y avisa de lo que se midió en cada uno. */
+function ajustarFormularioStop(){
+  const modo = $('tipoStop').value;
+  $('cajaMargen').style.visibility = (modo === 'hibrido') ? 'visible' : 'hidden';
+  $('lblStop').textContent = (modo === 'vela') ? 'Trailing (no se usa)' : 'Trailing (%)';
+
+  // **El suelo por encima del trailing no sirve para nada, y hay que decirlo.** El máximo
+  // arranca en la entrada, así que la caída desde el máximo siempre va por delante de la
+  // caída desde la entrada: con el trailing más apretado, salta él primero SIEMPRE. Creer
+  // que tienes dos protecciones cuando solo tienes una es peor que tener una.
+  const trailing = num($('stop').value);
+  const suelo = num($('stopLoss').value);
+  const inutil = modo !== 'vela' && trailing > 0 && suelo >= trailing;
+  $('lblStopLoss').innerHTML = inutil
+    ? 'Stop loss (%) <span class="warn">⚠ nunca saltará</span>'
+    : 'Stop loss (%) ⓘ';
+  $('stopLoss').style.borderColor = inutil ? 'var(--warn)' : '';
+}
+// El aviso de «nunca saltará» depende de los DOS umbrales, así que se revisa al tocar
+// cualquiera de ellos, no solo al cambiar de modo.
+['tipoStop', 'stop', 'stopLoss'].forEach(
+  id => $(id).addEventListener('input', ajustarFormularioStop));
+
+// La equivalencia se recalcula al teclear, no solo al salir del campo: es un conversor, y un
+// conversor que solo responde cuando pierdes el foco no sirve para comparar mientras escribes.
+$('importe').addEventListener('input', refrescarEquivalencia);
+$('moneda').addEventListener('change', refrescarEquivalencia);
+
+// El navegador solo concede el permiso de notificaciones tras un gesto del usuario, así que
+// se pide justo cuando activa el aviso de ballenas. Si lo deniega, el aviso sigue saliendo
+// en pantalla: la notificación es un extra, no el único canal.
+$('minBallena').addEventListener('change', () => {
+  if(num($('minBallena').value) > 0 && typeof Notification !== 'undefined'
+     && Notification.permission === 'default'){
+    Notification.requestPermission();
+  }
+});
+$('tipoStop').addEventListener('change', ajustarFormularioStop);
+ajustarFormularioStop();
+
+// --- Cartera ---------------------------------------------------------------
+
+const TIENDA_PHANTOM =
+  'https://chromewebstore.google.com/detail/phantom/bfnaelmomeimhlpmgjnjophhpkkoljpa';
+
+async function conectar(){
+  const c = carteraDisponible();
+
+  if(!c){
+    $('walletHint').innerHTML =
+      '<span class="warn">No hay ninguna cartera en esta ventana.</span> Instala Phantom ' +
+      `<a href="${TIENDA_PHANTOM}" target="_blank">desde aquí</a>, entra en tu cartera y ` +
+      'vuelve a pulsar CONECTAR. Se instala una sola vez.';
+    return;
+  }
+
+  if(!c.esPhantom){
+    // Se avisa de QUE cartera es, pero se deja continuar: si el usuario opera con ella a
+    // propósito, funciona igual. Lo que no puede pasar es que no sepa cuál le va a firmar.
+    $('walletHint').innerHTML =
+      `<span class="warn">Ojo: quien responde es ${c.nombre}</span>, no Phantom. Puedes ` +
+      `seguir con ella, o instalar Phantom <a href="${TIENDA_PHANTOM}" target="_blank">` +
+      'desde aquí</a> y recargar.';
+  }
+
+  try{
+    const r = await c.p.connect();
+    wallet = r.publicKey.toString();
+    carteraFirmante = c.p;
+    vigilarCambioDeCuenta(c.p);
+    $('wallet').textContent = wallet.slice(0,4) + '…' + wallet.slice(-4);
+    $('btnWallet').textContent = 'CAMBIAR CUENTA';
+    $('btnWallet').disabled = false;
+    $('walletHint').innerHTML =
+      `Conectada con <b>${c.nombre}</b>. Cada operación te la enseña antes de enviarla. ` +
+      'Para usar otra cuenta, cámbiala en la cartera o pulsa CAMBIAR CUENTA.';
+  }catch(e){
+    // **El motivo real, no una suposición.** Decir «cancelada» cuando la cartera está
+    // bloqueada, o cuando hay otra petición esperando, manda al usuario a buscar donde no es.
+    const codigo = e && e.code;
+    let motivo;
+    if(codigo === 4001){
+      motivo = 'Has rechazado la conexión en la cartera.';
+    }else if(codigo === -32002){
+      motivo = 'Ya hay una petición esperando: abre ' + c.nombre + ' y respóndela.';
+    }else{
+      motivo = (e && e.message) ? e.message : 'sin detalle';
+      motivo += '. Si la cartera está bloqueada, ábrela, mete su contraseña y reintenta.';
+    }
+    $('walletHint').innerHTML = `<span class="warn">No se conectó (${c.nombre}):</span> ${motivo}`;
+  }
+}
+
+/** Deja el panel al dia cuando se cambia de cuenta DENTRO de la cartera.
+ *
+ *  Sin esto, cambiar de cuenta en Phantom no se notaba aqui: se seguia construyendo la
+ *  operacion con la direccion vieja y la firma la pedia la nueva, asi que no habia forma de
+ *  enviarla. Y si habia una posicion abierta, sus tokens son de la cuenta anterior: se avisa
+ *  en vez de seguir contando un resultado que ya no es tuyo. */
+function vigilarCambioDeCuenta(p){
+  if(!p || !p.on || p._vigilado) return;
+  p._vigilado = true;
+  p.on('accountChanged', (clave) => {
+    if(!clave){
+      wallet = null; carteraFirmante = null;
+      $('wallet').textContent = 'sin conectar';
+      $('btnWallet').textContent = 'CONECTAR PHANTOM';
+      $('btnWallet').disabled = false;
+      $('walletHint').innerHTML = '<span class="warn">Te has desconectado desde la cartera.</span>';
+      return;
+    }
+    const anterior = wallet;
+    wallet = clave.toString();
+    carteraFirmante = p;
+    $('wallet').textContent = wallet.slice(0,4) + '…' + wallet.slice(-4);
+    $('walletHint').innerHTML = pos
+      ? '<span class="warn">Has cambiado de cuenta con una posición abierta.</span> Los ' +
+        'tokens que sigue el panel son de ' + (anterior ? anterior.slice(0,4)+'…' : 'la anterior') +
+        ', no de esta. Vuelve a esa cuenta para venderlos.'
+      : 'Cuenta cambiada. Las operaciones irán con esta.';
+  });
+}
+
+/** La cartera DEL PROGRAMA: su dirección y su saldo.
+ *
+ *  Es una cartera nueva que generó el propio programa la primera vez que se abrió. No es la
+ *  tuya y no puede serlo: no existe ninguna ruta para importar una cartera existente, así que
+ *  lo máximo que se puede perder aquí es lo que tú le mandes.
+ *
+ *  El saldo se refresca solo, para ver llegar una transferencia sin tener que recargar. */
+let saldoPrograma = null;
+async function refrescarCarteraPrograma(){
+  try{
+    const e = await (await fetch(`${API}/v1/auto/estado`)).json();
+    if(!e.firmante){
+      $('wallet').textContent = 'firmante apagado';
+      $('walletHint').innerHTML = '<span class="warn">El firmante del programa no responde.</span> ' +
+        'Sin él no se puede operar desde esta ventana.';
+      return;
+    }
+    direccionPrograma = e.firmante;
+    montarRetirada(e.cartera_retirada || null);
+    saldoPrograma = Number(e.saldo_firmante_sol || 0);
+    $('wallet').textContent = `${e.firmante.slice(0,4)}…${e.firmante.slice(-4)} · ${saldoPrograma.toFixed(4)} ◎`;
+    $('btnWallet').textContent = 'COPIAR DIRECCIÓN';
+    if(saldoPrograma <= 0){
+      // Se dice el número de verdad, no «lista para operar». Una cartera a cero no compra
+      // nada, y descubrirlo al pulsar COMPRAR es la peor forma de enterarse.
+      $('walletHint').innerHTML =
+        '<span class="warn">Esta cartera está a 0 ◎.</span> Es del programa, no la tuya: ' +
+        'mándale desde Phantom lo que quieras arriesgar y podrás operar. Copia la dirección ' +
+        'con el botón.';
+    }else{
+      $('walletHint').textContent =
+        'Cartera del programa. Firma sola, sin ventana de confirmación — por eso el stop ' +
+        'automático puede vender contigo delante o no. Solo arriesgas lo que tenga dentro.';
+    }
+  }catch{
+    $('wallet').textContent = 'sin contacto con el motor';
+  }
+}
+
+let direccionPrograma = null;
+
+/** Tu cartera: el UNICO destino al que el programa puede sacar saldo.
+ *
+ *  Se registra una vez y no se puede cambiar desde aquí. Si esta pantalla pudiera repuntarla,
+ *  fijar el destino no protegería de nada: quien lograra pedir una transferencia pondría antes
+ *  su dirección. Para cambiarla hay que cerrar el programa y borrar el fichero a mano. */
+function montarRetirada(registrada){
+  if($('bloqueRetirada')) return;
+  const caja = document.createElement('div');
+  caja.id = 'bloqueRetirada';
+  caja.style.marginTop = '10px';
+  caja.innerHTML = registrada
+    ? `<div class="k">Tu cartera (retirada)</div>
+       <div class="v" id="miCartera">${registrada.slice(0,4)}…${registrada.slice(-4)}</div>
+       <button class="wallet" id="btnRetirar" style="margin-top:8px">RETIRAR A MI CARTERA</button>
+       <div class="hint" id="pistaRetirada">Saca el SOL del programa a tu cartera. Deja 0,005 ◎
+         de reserva: vaciarla del todo cierra la cuenta y recrearla cuesta más.</div>`
+    : `<div class="k">Tu cartera (para poder retirar)</div>
+       <input id="miCartera" placeholder="Pega tu dirección o tu enlace de pump.fun…" />
+       <button class="wallet" id="btnRegistrar" style="margin-top:8px">REGISTRAR MI CARTERA</button>
+       <div class="hint" id="pistaRetirada">Sin esto el programa no puede devolverte el dinero:
+         las transferencias están bloqueadas salvo a esta dirección. Se registra una sola vez.</div>`;
+  $('walletHint').parentNode.appendChild(caja);
+
+  if($('btnRegistrar')) $('btnRegistrar').onclick = async () => {
+    const valor = $('miCartera').value.trim();
+    if(!valor) return;
+    $('btnRegistrar').disabled = true;
+    try{
+      const r = await fetch(`${API}/v1/auto/retirada`, {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({direccion: valor}),
+      });
+      const d = await r.json().catch(() => ({}));
+      if(!r.ok) throw new Error(d.detail || `la API respondió ${r.status}`);
+      caja.remove(); montarRetirada(d.cartera_retirada);
+    }catch(e){
+      $('pistaRetirada').innerHTML = `<span class="warn">${e.message}</span>`;
+      $('btnRegistrar').disabled = false;
+    }
+  };
+
+  if($('btnRetirar')) $('btnRetirar').onclick = async () => {
+    if(!confirm('¿Sacar el SOL del programa a tu cartera?')) return;
+    $('btnRetirar').disabled = true;
+    try{
+      const r = await fetch(`${API}/v1/auto/retirar`, {method:'POST'});
+      const d = await r.json().catch(() => ({}));
+      if(!r.ok) throw new Error(d.detail || `la API respondió ${r.status}`);
+      $('pistaRetirada').innerHTML =
+        `<span class="ok">Retirados ${Number(d.importe_sol).toFixed(4)} ◎.</span> ` +
+        `<a href="https://solscan.io/tx/${d.firma}" target="_blank">ver en Solscan</a>`;
+      refrescarCarteraPrograma();
+    }catch(e){
+      $('pistaRetirada').innerHTML = `<span class="warn">${e.message}</span>`;
+    }
+    $('btnRetirar').disabled = false;
+  };
+}
+
+if(EN_PROGRAMA){
+  $('sub').textContent = 'Compra y venta reales en Pump.fun. Firma el propio programa con su '
+    + 'cartera; la tuya no interviene.';
+  refrescarCarteraPrograma();
+  setInterval(refrescarCarteraPrograma, 15000);
+  $('btnWallet').addEventListener('click', async () => {
+    if(!direccionPrograma) return;
+    try{
+      await navigator.clipboard.writeText(direccionPrograma);
+      $('btnWallet').textContent = 'COPIADA ✓';
+      setTimeout(() => { $('btnWallet').textContent = 'COPIAR DIRECCIÓN'; }, 1600);
+    }catch{
+      // Sin permiso de portapapeles se enseña entera para poder copiarla a mano.
+      $('walletHint').textContent = `Dirección del programa: ${direccionPrograma}`;
+    }
+  });
+}
+
+(async () => {
+  if(EN_PROGRAMA) return;   // en el programa no hay Phantom que reconectar
+  const c = carteraDisponible();
+  if(!c) return;
+  vigilarCambioDeCuenta(c.p);
+  try{
+    const r = await c.p.connect({onlyIfTrusted:true});
+    wallet = r.publicKey.toString();
+    carteraFirmante = c.p;
+    $('wallet').textContent = wallet.slice(0,4) + '…' + wallet.slice(-4);
+    $('btnWallet').textContent = 'CAMBIAR CUENTA';
+  }catch{}
+})();
+
+// --- Operar ----------------------------------------------------------------
+
+async function operar(cuerpo){
+  // **En el programa firma el programa.** Aquí no hay Phantom: es una extensión de navegador
+  // Manifest V3 y en una ventana nativa no se inyecta (comprobado cargándola en Electron 43:
+  // la extensión carga pero `window.phantom` no aparece). La orden se manda entera al motor,
+  // que la prepara, se la da al firmante y la envía.
+  //
+  // El firmante revalida por su cuenta —lista de programas, pagador, tope por orden y tope
+  // diario— y puede decir que no. Que esta función se equivoque no basta para que salga una
+  // firma.
+  if(EN_PROGRAMA){
+    const r = await fetch(`${API}/v1/auto/operar`, {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify(cuerpo),
+    });
+    const d = await r.json().catch(() => ({}));
+    if(!r.ok) throw new Error(d.detail || `la API respondió ${r.status}`);
+    return {signature: d.firma, summary: d.resumen};
+  }
+
+  const p = carteraFirmante;
+  if(!p || !wallet) throw new Error('Conecta tu cartera primero.');
+  const r = await fetch(`${API}/v1/trade/prepare`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({...cuerpo, user: wallet}),
+  });
+  const d = await r.json().catch(() => ({}));
+  if(!r.ok) throw new Error(d.detail || `la API respondió ${r.status}`);
+  const {signature} = await firmarYEnviar(p, d);
+  return {signature, summary: d.summary};
+}
+
+/** Pide la firma a la cartera, probando los dos formatos que existen.
+ *
+ *  `signAndSendTransaction` recibe un `message` en base58, pero no todas las carteras
+ *  entienden lo mismo por eso: unas esperan la TRANSACCION entera y otras solo el MENSAJE.
+ *  Dandole el mensaje a una que espera transaccion, se salta los 64 bytes de la firma y lee
+ *  como versión un byte cualquiera de una clave pública: de ahí el «Transaction message
+ *  version 49 deserialization is not supported».
+ *
+ *  Se prueba primero la transacción completa y se reintenta con el mensaje SOLO si el fallo
+ *  es de formato. Si el usuario ha rechazado, no se le vuelve a pedir: ver dos ventanas de
+ *  firma seguidas es motivo de sobra para desconfiar del programa. */
+async function firmarYEnviar(p, d){
+  const formatos = [d.transaction_base58, d.message_base58].filter(Boolean);
+  let ultimo = null;
+  for(const formato of formatos){
+    try{
+      return await p.request({method:'signAndSendTransaction', params:{message: formato}});
+    }catch(e){
+      ultimo = e;
+      if(e && e.code === 4001) throw e;                       // lo rechazó el usuario
+      const texto = (e && e.message) ? e.message : '';
+      if(!/deserializ|version|decode|invalid|unsupported/i.test(texto)) throw e;
+    }
+  }
+  throw ultimo || new Error('la cartera no aceptó ningún formato de transacción');
+}
+
+/** `pendiente` no es `perdida`: distinguirlo evita comprar dos veces lo mismo. */
+async function esperar(signature, segundos = 45){
+  const hasta = Date.now() + segundos*1000;
+  while(Date.now() < hasta){
+    try{
+      const s = await (await fetch(`${API}/v1/trade/status/${signature}`)).json();
+      if(s.state === 'confirmada') return s;
+      if(s.state === 'fallida') throw new Error(`la red rechazó la transacción: ${s.error}`);
+    }catch(e){
+      if(e.message.includes('rechazó')) throw e;
+    }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  return {state:'pendiente'};
+}
+
+const enlace = s => `<a href="https://solscan.io/tx/${s}" target="_blank">ver transacción</a>`;
+
+async function calentar(mint){
+  if(!mint || mint === ultimoCalentado) return;
+  ultimoCalentado = mint;
+  try{ await fetch(`${API}/v1/trade/warm/${encodeURIComponent(mint)}`, {method:'POST'}); }catch{}
+}
+
+$('mint').addEventListener('change', () => {
+  const m = limpiarMint($('mint').value);
+  $('linkPump').href = m ? `https://pump.fun/${m}` : 'https://pump.fun';
+  calentar(m);
+  vivo();
+});
+
+// --- Mercado en vivo -------------------------------------------------------
+
+let ultimoLatido = 0;
+
+function limpiarMercado(texto){
+  ['liquidez','volumen','cap','compradores','vendedores','ritmo','entra','sale','neto']
+    .forEach(id => $(id).textContent = '—');
+  // Tambien la lectura: dejar la recomendacion del token anterior en pantalla haria creer
+  // que se refiere al que se esta mirando ahora.
+  $('accion').textContent = '—'; $('accion').className = 'big';
+  $('confianza').textContent = '—';
+  $('razon').textContent = texto;
+  $('rebote').innerHTML = ''; $('ballena').innerHTML = '';
+  $('pc').style.width = '50%'; $('pv').style.width = '50%';
+  $('pc').textContent = ''; $('pv').textContent = '';
+  $('mercadoHint').textContent = texto;
+  $('latido').className = 'vivo';
+}
+
+// --- Detector de carteras grandes -------------------------------------------
+//
+// La API ya sabe quién concentra el volumen; lo que faltaba era avisar. «Grande» no es un
+// tamaño absoluto: en un token con 30 ◎ de liquidez, 2 ◎ ya mueven el precio. Por eso el
+// detector mide RELATIVO al propio token (35% del volumen reciente, o una operación 5 veces
+// mayor que la mediana) y aquí solo se añade un mínimo en SOL, para que en un token muerto
+// no salte cualquier cosa.
+//
+// Solo se avisa de COMPRAS. De una ballena vendiendo ya te enteras por el precio.
+
+/** Cuánto llevaba comprado cada ballena la última vez que se avisó, por token. */
+let ballenasAvisadas = {};
+
+/** Hasta cuándo el aviso de compra tiene prioridad sobre el texto normal de ballena. */
+let avisoBallenaHasta = 0;
+const AVISO_VISIBLE_MS = 8000;
+
+// El panel puede estar abierto horas y ver cientos de tokens: sin tope, este registro crece
+// sin parar. Se poda por lo viejo, que es lo que ya no se va a repetir.
+const MAX_BALLENAS_RECORDADAS = 300;
+
+// Se vuelve a avisar si sigue comprando y su volumen crece la mitad otra vez. Sin esto, o
+// avisas una vez y te pierdes que siga cargando, o avisas cada segundo y dejas de mirarlo.
+const CRECIMIENTO_PARA_REAVISAR = 1.5;
+
+/** Última compra grande ya avisada por token, para no repetirla. */
+let compraGrandeAvisada = {};
+
+/** Avisa en cuanto entra UNA compra grande, sin esperar a que se confirme la concentración.
+ *
+ *  Es lo que adelanta el aviso. El detector de ballenas necesita al menos cuatro operaciones
+ *  con cartera identificada para poder decir que alguien concentra volumen: hasta entonces,
+ *  una compra enorme pasa desapercibida. Aquí basta con que UNA supere el mínimo.
+ *
+ *  Lo que no se puede hacer, y conviene decirlo: avisar ANTES de la compra. Una operación
+ *  solo existe cuando ya está en la cadena. Esto avisa antes que el otro detector, no antes
+ *  que el hecho.
+ */
+function avisarCompraGrande(mint, f){
+  const minimo = num($('minBallena').value);
+  if(!(minimo > 0) || !mint || !f) return;
+  if(f.largest_trade_side !== 'compra') return;
+
+  const sol = Number(f.largest_trade_sol) || 0;
+  if(sol < minimo) return;
+
+  // Solo si es MAYOR que la última avisada: el mismo máximo se repite en cada ciclo.
+  const anterior = compraGrandeAvisada[mint] || 0;
+  if(sol <= anterior) return;
+  const claves = Object.keys(compraGrandeAvisada);
+  if(claves.length >= MAX_BALLENAS_RECORDADAS) delete compraGrandeAvisada[claves[0]];
+  compraGrandeAvisada[mint] = sol;
+  avisoBallenaHasta = Date.now() + AVISO_VISIBLE_MS;
+
+  const texto = `entrada de ${sol.toFixed(3)} ◎ en una sola compra`;
+  $('ballena').innerHTML = `<span class="good">🐋 CARTERA GRANDE HA COMPRADO:</span> ${texto}`;
+  $('ballena').classList.add('destello');
+  setTimeout(() => $('ballena').classList.remove('destello'), 2500);
+
+  if(typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+    new Notification('🐋 Cartera grande ha comprado', {body: texto, tag: `compra|${mint}`});
+  }
+}
+
+function avisarBallena(mint, w){
+  const minimo = num($('minBallena').value);
+  if(!(minimo > 0) || !mint) return;
+  if(!w || !w.present || !w.wallet) return;
+  // `acumulando` es como el detector llama a comprar. `vendiendo` no se avisa.
+  if(w.direction !== 'acumulando') return;
+
+  const sol = Number(w.sol_amount) || 0;
+  if(sol < minimo) return;
+
+  const clave = `${mint}|${w.wallet}`;
+  const anterior = ballenasAvisadas[clave] || 0;
+  if(anterior > 0 && sol < anterior * CRECIMIENTO_PARA_REAVISAR) return;
+  const claves = Object.keys(ballenasAvisadas);
+  if(claves.length >= MAX_BALLENAS_RECORDADAS) delete ballenasAvisadas[claves[0]];
+  ballenasAvisadas[clave] = sol;
+  avisoBallenaHasta = Date.now() + AVISO_VISIBLE_MS;
+
+  const texto = `${w.wallet.slice(0,4)}…${w.wallet.slice(-4)} lleva ${sol.toFixed(3)} ◎ ` +
+                `(${w.share_of_volume}% del volumen reciente)`;
+
+  // En pantalla siempre; la notificación del sistema solo si está permitida.
+  $('ballena').innerHTML =
+    `<span class="good">🐋 CARTERA GRANDE HA COMPRADO:</span> ${texto}`;
+  $('ballena').classList.add('destello');
+  setTimeout(() => $('ballena').classList.remove('destello'), 2500);
+
+  if(typeof Notification !== 'undefined' && Notification.permission === 'granted'){
+    new Notification('🐋 Cartera grande ha comprado', {body: texto, tag: clave});
+  }
+}
+
+/** Pinta el mercado del token y devuelve su capitalización, o null si no hay señal. */
+async function vivo(){
+  const mint = mintActivo();
+  if(!mint){ limpiarMercado('Pega un token para ver su mercado.'); return null; }
+
+  let d;
+  try{
+    // Solo hacen falta la vela en curso y unas pocas cerradas; la serie entera son 76 KB
+    // por petición que nadie lee.
+    d = await (await fetch(`${API}/v1/tokens/${encodeURIComponent(mint)}/live?candles=6`)).json();
+  }catch{
+    limpiarMercado('Sin conexión con la API.');
+    return null;
+  }
+
+  // **El panel ya no mira `graduated` para nada.** Antes esa marca vaciaba la pantalla, vetaba
+  // la compra y desactivaba el stop; venía de una heurística que fallaba a menudo, así que
+  // dejaba sin panel por una sospecha. Se ha quitado entera a petición del usuario. Quien
+  // decide si un token se puede comprar es la simulación de la orden contra la cadena.
+
+  const s = d.snapshot, f = d.flow || {};
+  if(!s){ limpiarMercado('Sin datos de mercado todavía…'); return {cap:null}; }
+
+  $('liquidez').textContent = dinero(Number(s.liquidity_sol));
+  $('volumen').textContent  = dinero(Number(s.volume_sol));
+  $('cap').textContent      = dinero(Number(s.market_cap_sol));
+
+  // Carteras distintas a cada lado, no número de operaciones.
+  const compradores = s.unique_buyers ?? 0, vendedores = s.unique_sellers ?? 0;
+  $('compradores').textContent = `${ent(compradores)} (${ent(s.buys||0)} ops)`;
+  $('vendedores').textContent  = `${ent(vendedores)} (${ent(s.sells||0)} ops)`;
+  // Un ritmo por minuto extrapolado de una ventana de un segundo es ruido con aspecto de
+  // dato: 42 operaciones en 1 s se convierten en «2520/min». Solo se da como ritmo cuando la
+  // ventana observada da para ello; si no, se dice lo que de verdad se ha visto.
+  const ventana = Number(f.window_seconds || 0);
+  if(f.trades_per_minute !== undefined && ventana >= 10){
+    $('ritmo').textContent = f.trades_per_minute.toFixed(0) + '/min';
+  }else if(d.trades){
+    $('ritmo').textContent = `${ent(d.trades)} en ${ventana||'<1'} s`;
+  }else{
+    $('ritmo').textContent = '—';
+  }
+
+  const entra = Number(f.sol_in||0), sale = Number(f.sol_out||0), neto = entra - sale;
+  $('entra').textContent = dinero(entra);
+  $('sale').textContent  = dinero(sale);
+  // El signo se pone SIEMPRE. Sin el menos, una salida neta de dinero se lee como entrada,
+  // que es exactamente al reves de lo que esta pasando.
+  $('neto').textContent  = (neto>=0 ? '+' : '−') + dinero(Math.abs(neto));
+  $('neto').className = 'v ' + (neto>=0 ? 'good' : 'bad');
+
+  // Presión: reparto del volumen entre compras y ventas.
+  const total = entra + sale;
+  const pctC = total > 0 ? (entra/total)*100 : 50;
+  $('pc').style.width = pctC.toFixed(1)+'%';
+  $('pv').style.width = (100-pctC).toFixed(1)+'%';
+  $('pc').textContent = pctC >= 18 ? `${pctC.toFixed(0)}% compra` : '';
+  $('pv').textContent = (100-pctC) >= 18 ? `${(100-pctC).toFixed(0)}% venta` : '';
+
+  // El latido confirma que los datos se están moviendo de verdad.
+  const ahora = Date.now();
+  $('latido').className = (ahora - ultimoLatido < 4000) ? 'vivo on' : 'vivo';
+  ultimoLatido = ahora;
+  $('refresco').textContent = d.refresh_ms ? `· datos cada ${(d.refresh_ms/1000).toFixed(1)} s` : '';
+  $('mercadoHint').innerHTML = `${ent(d.trades||0)} operaciones observadas · ` +
+    `${ent(s.unique_traders||0)} carteras distintas`;
+
+  // Lectura del token: recomendacion, forma de rebote y ballena. Todo sale de la API, que
+  // ya lo calcula; el panel no se inventa una segunda opinion que pudiera contradecirla.
+  const rec = d.recommendation || {};
+  const accion = rec.action || '—';
+  $('accion').textContent = accion;
+  $('accion').className = 'big ' + (
+    accion === 'COMPRA' ? 'acc-compra' :
+    accion === 'VENDE'  ? 'acc-vende'  :
+    accion === 'EVITA'  ? 'acc-evita'  : 'acc-manten');
+  $('confianza').textContent = rec.confidence || '—';
+  $('razon').textContent = rec.reason || '';
+
+  const pb = d.pre_bounce || {};
+  // No dice que vaya a rebotar: dice que AHORA tiene la forma de los que rebotan. La
+  // diferencia importa, y por eso se escribe asi en pantalla.
+  $('rebote').innerHTML = pb.present
+    ? `<span class="warn">↩ Forma de rebote:</span> ${pb.detail}. ` +
+      `<b>No predice nada</b>: hay tokens con esta forma que siguen cayendo.`
+    : '';
+
+  const w = d.whale || {};
+  // El aviso de compra manda mientras esté fresco: si no, el repintado del ciclo siguiente
+  // —800 ms después— lo borraría antes de que diese tiempo a leerlo.
+  if(Date.now() > avisoBallenaHasta){
+    $('ballena').innerHTML = w.present
+      ? `<span class="${w.direction === 'vendiendo' ? 'bad' : 'good'}">🐋 Ballena ${w.direction}:</span> ${w.detail}`
+      : '';
+  }
+  // Primero la compra suelta —que llega antes— y después la concentración, que sabe QUIÉN.
+  avisarCompraGrande(mint, f);
+  avisarBallena(mint, w);
+
+  // Velas: hacen falta para los modos de stop que miran el color, y para el indicador.
+  const velas = analizarVelas(d.candles);
+  const cuerpo = cuerpoRojo(velas.formando);
+  if(velas.formando){
+    const verde = velas.formando.close >= velas.formando.open;
+    $('ultimaVela').textContent = verde ? '▲ verde' : `▼ roja −${cuerpo.toFixed(2)}%`;
+    $('ultimaVela').className = 'v ' + (verde ? 'good' : 'bad');
+  }else{
+    $('ultimaVela').textContent = '—';
+    $('ultimaVela').className = 'v';
+  }
+
+  const cap = Number(s.market_cap_sol);
+  return {
+    cap: (isFinite(cap) && cap > 0) ? cap : null,
+    formando: velas.formando,
+    cerradas: velas.cerradas,
+    rebote: pb.present ? pb : null,
+    accion,
+  };
+}
+
+// --- Posicion --------------------------------------------------------------
+
+// Mismos costes que el backtest, y por el mismo motivo: el margen del «asegurar beneficio»
+// se calibró con ellos, así que calcularlo de otra forma cambiaría en silencio el umbral
+// que se midió. Comisión y deslizamiento se cobran en LAS DOS patas; ignorar una convierte
+// pérdidas en beneficios aparentes.
+const FEE_LADO = 0.01, SLIP_LADO = 0.0125;
+
+function resultado(cap){
+  if(!pos || !pos.entryCap) return 0;
+  const mult = cap / pos.entryCap;
+  const pagado   = pos.sizeEur * (1 + FEE_LADO + SLIP_LADO);
+  const recibido = pos.sizeEur * mult * (1 - FEE_LADO - SLIP_LADO);
+  return recibido - pagado;
+}
+
+// El precio de SOL en euros no cambia en 800 ms. Pedirlo en cada ciclo eran 90 peticiones
+// por minuto para repintar el mismo numero.
+let precioPedidoEn = 0;
+const PRECIO_CADA_MS = 10000;
+
+async function tick(){
+  if(Date.now() - precioPedidoEn > PRECIO_CADA_MS){
+    precioPedidoEn = Date.now();
+    try{
+      const p = await (await fetch(`${API}/v1/price`)).json();
+      if(p.sol){ precioSol = p.sol.eur; precioUsd = p.sol.usd; }
+      refrescarEquivalencia();
+    }catch{}
+  }
+
+  const info = await vivo();
+  if(!pos || !info) return;
+
+  // La graduación ya no se menciona en ningún sitio del panel: era el último aviso que
+  // quedaba y se ha quitado a petición expresa. La posición se valora y el stop se evalúa
+  // igual que en cualquier otro token.
+  //
+  // SIN SEÑAL: no se pinta la cifra vieja como si fuera de ahora, ni se evalúa el stop con
+  // ella. Un dato congelado que parece actual es peor que no tener dato.
+  if(info.cap === null){
+    decir('⏸ Sin señal: no llega precio ahora mismo. El stop no se evalúa con datos viejos.', 'warn');
+    $('actual').textContent = '—';
+    return;
+  }
+
+  // La capitalización de NACIMIENTO es el valor por defecto de la caché. Tomarla por buena
+  // con una posición muy por encima ya provocó un falso desplome: se trata como sin señal.
+  if(Math.abs(info.cap - BIRTH) < 0.01 && pos.peakCap > BIRTH * 2){
+    decir('⏸ Lectura descartada: llega la capitalización de nacimiento, que es el valor por ' +
+          'defecto de la caché y no un desplome real.', 'warn');
+    return;
+  }
+
+  // El máximo se mide sobre la MEDIANA de las últimas lecturas, no sobre la última.
+  const suavizado = empujarLectura(info.cap);
+  pos.peakCap = Math.max(pos.peakCap, suavizado);
+
+  const r      = resultado(suavizado);
+  const pct    = (r / pos.sizeEur) * 100;
+  const caida  = ((pos.peakCap - suavizado) / pos.peakCap) * 100;
+  // Caída desde TU ENTRADA, que es lo que mide el stop loss. Si el token está por encima de
+  // la entrada esto es negativo; se recorta a cero para que «he caído un -8%» no exista.
+  const desdeEntrada = pos.entryCap > 0
+    ? Math.max(0, ((pos.entryCap - suavizado) / pos.entryCap) * 100)
+    : 0;
+  const modo   = $('tipoStop').value;
+  const umbral = num($('stop').value);
+  const suelo  = num($('stopLoss').value);
+  const stopCap = pos.peakCap * (1 - umbral/100);
+
+  $('pnl').textContent = (r>=0?'+':'') + fiatPos(r) + `  (${pct>=0?'+':''}${pct.toFixed(1)}%)`;
+  $('pnl').className = 'big ' + (r>=0 ? 'good' : 'bad');
+  $('entrada').textContent = dinero(pos.entryCap);
+  $('actual').textContent  = dinero(info.cap);
+  $('maximo').textContent  = dinero(pos.peakCap);
+  // Lo que el stop mide de verdad, con su umbral al lado. Antes aqui iba el precio de
+  // disparo, y eso no responde a la pregunta que uno se hace mirando la pantalla: «¿por qué
+  // no ha saltado todavía?».
+  // Se enseña la regla que esté MÁS CERCA de disparar, que es la que va a decidir. Mostrar
+  // solo el trailing escondía el stop loss cuando era este el que estaba a punto de saltar.
+  const cercaTrailing = (modo !== 'vela' && umbral > 0) ? caida / umbral : 0;
+  const cercaSuelo    = suelo > 0 ? desdeEntrada / suelo : 0;
+  const mandaSuelo    = cercaSuelo >= cercaTrailing;
+  const cercania      = Math.max(cercaTrailing, cercaSuelo);
+
+  if(cercania <= 0){
+    $('stopEn').textContent = '—';
+    $('stopEn').className = 'v';
+  }else if(mandaSuelo){
+    $('stopEn').textContent = `${desdeEntrada.toFixed(1)}% de ${suelo}% (entrada)`;
+    $('stopEn').className = 'v ' + (cercaSuelo >= 0.7 ? 'warn' : '');
+  }else{
+    $('stopEn').textContent = `${caida.toFixed(1)}% de ${umbral}% (máximo)`;
+    $('stopEn').className = 'v ' + (cercaTrailing >= 0.7 ? 'warn' : '');
+  }
+
+  const porque = motivoStop(info, caida, pct, desdeEntrada);
+  const disparado = porque !== null;
+
+  // La barra mide lo cerca que está la regla más próxima a disparar. En «solo vela roja» sin
+  // stop loss no hay distancia que medir: o la vela es roja o no lo es, y fingir una barra
+  // sería inventarse un margen inexistente.
+  if(cercania <= 0){
+    $('stopFill').style.width = disparado ? '0%' : '100%';
+    $('stopFill').style.background = disparado ? 'var(--down)' : 'var(--ok)';
+    $('btnStop').textContent = 'stop: vela roja';
+  }else{
+    const margen = Math.max(0, Math.min(1, 1 - cercania));
+    $('stopFill').style.width = (margen*100).toFixed(0) + '%';
+    $('stopFill').style.background = margen > .5 ? 'var(--ok)' : margen > .2 ? 'var(--warn)' : 'var(--down)';
+    const faltan = mandaSuelo ? suelo - desdeEntrada : umbral - caida;
+    $('btnStop').textContent = `stop: ${Math.max(0, faltan).toFixed(1)} pts`;
+  }
+
+  if(disparado && stopArmado){
+    stopArmado = false;
+    // Si el bajon tiene forma de rebote se dice, pero NO se desactiva el stop: sobre las
+    // estampidas grabadas, aguantar pierde 1.156 € y salir pierde 30-85 €. Quedarse esperando
+    // el rebote es la apuesta que peor sale, asi que se informa y se deja decidir.
+    const aviso = info.rebote
+      ? `<br><span class="warn">↩ Ojo:</span> este bajón tiene forma de rebote ` +
+        `(${info.rebote.detail}). No es una predicción, y aguantar esperándolo es ` +
+        `justo lo que peor salió en las pruebas.`
+      : '';
+    decir(pos.simulada
+      ? `<b class="warn">👁 STOP (simulado)</b> — ${porque}. Aquí es donde habrías salido.${aviso}`
+      : `<b class="bad">⚠ STOP ALCANZADO</b> — ${porque}. ` +
+        `Pulsa <b>LIQUIDAR TODO</b> para salir; la venta ya está preparada.${aviso}`);
+    $('btnVender').textContent = '⚠ LIQUIDAR TODO (STOP)';
+    if(!avisado){
+      avisado = true;
+      if(typeof Notification!=='undefined' && Notification.permission==='granted'){
+        new Notification(`⚠ ${pos.symbol}: stop alcanzado`,
+          {body:`${porque}. Resultado: ${(r>=0?'+':'')+fiatPos(r)}`});
+      }
+    }
+    calentar(pos.mint);
+
+    // **Modo automatico.** Se lanza la venta sola; Phantom se abre y solo hay que aprobar.
+    // No vende sin ti: la firma sigue siendo tuya, asi que si no estas delante esto no
+    // sirve de nada. Se dice tal cual en la etiqueta para que nadie se confie.
+    if($('stopAuto').checked && !operando){
+      if(pos.simulada){
+        decir('👁 Stop automático: cerrando el seguimiento (simulado, sin dinero).');
+        vender(100);
+      }else if(wallet){
+        decir(`<b class="bad">⚠ STOP</b> — ${porque}. <b>Lanzando la venta: apruébala en Phantom.</b>`);
+        vender(100);
+      }else{
+        decir(`<b class="bad">⚠ STOP</b> — ${porque}. No hay cartera conectada, ` +
+              `así que no se puede lanzar la venta sola.`, '');
+      }
+    }
+  } else if(!disparado){
+    // Se enumera lo que está vigilando de verdad, con su distancia. Antes solo hablaba del
+    // trailing, y con el stop loss puesto eso ocultaba la regla que iba a saltar primero.
+    const partes = [];
+    if(suelo > 0){
+      partes.push(`stop loss a ${Math.max(0, suelo - desdeEntrada).toFixed(1)} pts ` +
+                  `(${desdeEntrada.toFixed(1)}% desde tu entrada)`);
+    }
+    if(modo !== 'vela' && umbral > 0){
+      partes.push(`trailing a ${Math.max(0, umbral - caida).toFixed(1)} pts ` +
+                  `(${caida.toFixed(1)}% desde el máximo)`);
+    }
+    if(modo === 'vela') partes.push('esperando la primera vela roja cerrada');
+    if(modo === 'hibrido' && num($('margen').value) > 0){
+      partes.push(`asegura beneficio con vela roja a partir de +${num($('margen').value)}%`);
+    }
+    decir('Abierta · ' + (partes.length ? partes.join(' · ') : 'sin ninguna regla activa'));
+  }
+}
+
+// --- Botones ---------------------------------------------------------------
+
+$('btnWallet').onclick = async () => {
+  // Dentro del programa este botón copia la dirección propia y ya tiene su propio manejador.
+  // Sin esta salida se dispararían los dos: copiaría Y intentaría abrir Phantom, que aquí no
+  // existe, dejando el aviso de «no hay ninguna cartera» encima de una cartera que sí hay.
+  if(EN_PROGRAMA) return;
+
+  // Con una cuenta ya conectada, el boton sirve para soltarla y elegir otra. Se desconecta
+  // primero: si no, la cartera devuelve la misma sin preguntar y parece que no hace nada.
+  if(wallet && carteraFirmante){
+    if(pos && !confirm('Tienes una posición abierta con esta cuenta. Sus tokens no se mueven '
+                     + 'a la otra: para venderlos tendrás que volver aquí.\n\n¿Cambiar igualmente?')){
+      return;
+    }
+    try{ await carteraFirmante.disconnect(); }catch{}
+    wallet = null; carteraFirmante = null;
+    $('wallet').textContent = 'sin conectar';
+    $('btnWallet').textContent = 'CONECTAR PHANTOM';
+    $('walletHint').textContent = 'Elige la cuenta que quieras en la cartera y vuelve a conectar.';
+    return;
+  }
+  await conectar();
+};
+
+$('btnComprar').onclick = async () => {
+  if(operando) return;
+  const mint = limpiarMint($('mint').value);
+  const importe = num($('importe').value);
+  const trailingPct = num($('stop').value);
+  const slipPct = num($('slip').value);
+
+  const soloMirar = $('soloMirar').checked;
+  if(!soloMirar && !EN_PROGRAMA && !wallet){ decir('Conecta Phantom antes de comprar.', 'warn'); return; }
+  if(!mint){ decir('Falta el mint.', 'warn'); return; }
+  if(!(importe>0)){ decir('El importe tiene que ser mayor que cero.', 'warn'); return; }
+  // En «solo vela roja» el trailing no se usa, asi que no se exige.
+  if($('tipoStop').value !== 'vela' && !(trailingPct>0 && trailingPct<100)){
+    decir('El trailing tiene que estar entre 0 y 100.', 'warn'); return;
+  }
+  const sueloPct = num($('stopLoss').value);
+  if(!(sueloPct >= 0 && sueloPct < 100)){
+    decir('El stop loss tiene que estar entre 0 y 100 (0 lo desactiva).', 'warn'); return;
+  }
+  // Sin ninguna regla activa no hay stop, y entrar creyendo que lo hay es lo peor de todo.
+  if(sueloPct === 0 && $('tipoStop').value === 'vela'){
+    decir('Con el stop loss a 0 y el modo «solo vela roja», tu única salida es una vela roja. ' +
+          'Pon un stop loss si quieres un suelo.', 'warn');
+  }
+  if(!(slipPct>0 && slipPct<50)){ decir('El slippage tiene que estar entre 0 y 50.', 'warn'); return; }
+  // La orden se manda SIEMPRE en SOL: si el importe viene en euros o dólares hay que
+  // convertirlo, y sin precio no se convierte. Adivinarlo aquí sería adivinar cuánto gastas.
+  const cambio = tasa();
+  if(cambio === null){
+    decir('Sin precio de SOL no se puede convertir el importe. Reintenta en un segundo.', 'warn');
+    return;
+  }
+  const importeSol = importe / cambio;
+  const moneda = $('moneda').value;
+
+  const info = await vivo();
+  // **Aquí ya no se bloquea por graduación.** Este corte vetaba la compra basándose en una
+  // marca que podía venir de una heurística equivocada, y entonces no había forma de operar
+  // un token perfectamente vivo. Quien decide de verdad es la SIMULACIÓN de la orden contra
+  // la cadena, un paso más abajo: si la curva está completa, falla ahí y lo dice, y eso no
+  // se puede equivocar. Un veto adivinado antes de preguntar sobra.
+  if(!info){ decir('No llega información de ese token. Reintenta en un segundo.', 'warn'); return; }
+  if(info.cap === null){ decir('No llega precio de ese token. ¿Está operando?', 'warn'); return; }
+
+  if(soloMirar){
+    // Ni cartera, ni transacción, ni comisión. Solo el seguimiento, para ver cómo se habría
+    // comportado la posición antes de arriesgar nada.
+    pos = {mint, symbol: mint.slice(0,6), sizeEur: importe, moneda, entryCap: info.cap,
+           peakCap: info.cap, feeBps: 100, simulada: true};
+    lecturas = [info.cap];
+    avisado = false; stopArmado = true;
+    [$('btnVender'),$('btnV25'),$('btnV50')].forEach(b => b.disabled = false);
+    $('btnVender').textContent = 'CERRAR SEGUIMIENTO';
+    $('btnComprar').disabled = true;
+    $('marcaSim').innerHTML = '<span class="simulada">solo mirar</span>';
+    decir('👁 Siguiendo <b>sin dinero</b>. El resultado y el stop funcionan igual, pero no se ' +
+          'ha comprado nada. Desmarca «Solo mirar» y vuelve a empezar para operar de verdad.');
+    return;
+  }
+
+  operando = true;
+  $('btnComprar').disabled = true;
+  decir('Preparando la compra… <b>confírmala en Phantom.</b>');
+
+  try{
+    const {signature, summary} = await operar({
+      mint, side:'buy',
+      amount_sol: importeSol,
+      slippage_bps: Math.round(slipPct*100),
+    });
+    decir(`Enviada, esperando confirmación… ${enlace(signature)}`);
+    const est = await esperar(signature);
+
+    if(est.state === 'confirmada'){
+      // `moneda` se guarda con la posición: el resultado se cuenta en la unidad con la que
+      // entraste, aunque después cambies el desplegable.
+      pos = {mint, symbol: mint.slice(0,6), sizeEur: importe, moneda, entryCap: info.cap,
+             peakCap: info.cap, feeBps: summary.fee_bps};
+      // El suavizado arranca de cero: arrastrar lecturas del token anterior falsearia el
+      // maximo desde el primer instante.
+      lecturas = [info.cap];
+      avisado = false; stopArmado = true;
+      [$('btnVender'),$('btnV25'),$('btnV50')].forEach(b => b.disabled = false);
+      $('btnVender').textContent = 'LIQUIDAR TODO';
+      if(typeof Notification!=='undefined') Notification.requestPermission();
+      decir(`<b class="good">Comprado.</b> Siguiendo la posición. ${enlace(signature)}`);
+    }else{
+      decir(`<b class="warn">Sin confirmar todavía.</b> No se abre la posición para no ` +
+            `contar algo que quizá no entró. ${enlace(signature)}`);
+      $('btnComprar').disabled = false;
+    }
+  }catch(e){
+    decir(`<b class="bad">No se compró:</b> ${e.message}`);
+    $('btnComprar').disabled = false;
+  }finally{
+    operando = false;
+  }
+};
+
+async function vender(porcentaje){
+  if(operando || !pos) return;
+
+  if(pos.simulada){
+    const info = await vivo();
+    const r = (info && info.cap) ? resultado(info.cap) : 0;
+    if(porcentaje >= 100){
+      decir(`👁 Seguimiento cerrado. Habrías terminado en ` +
+            `<b class="${r>=0?'good':'bad'}">${(r>=0?'+':'')+fiatPos(r)}</b>. No se movió dinero.`);
+      cerrarPosicion();
+    }else{
+      pos.sizeEur = pos.sizeEur * (1 - porcentaje/100);
+      stopArmado = true;
+      decir(`👁 Simulado: vendes el ${porcentaje}% y sigues con el resto. No se movió dinero.`);
+    }
+    return;
+  }
+
+  if(!EN_PROGRAMA && !wallet){ decir('Conecta Phantom antes de vender.', 'warn'); return; }
+  const slipPct = num($('slip').value) || 10;
+
+  operando = true;
+  [$('btnVender'),$('btnV25'),$('btnV50')].forEach(b => b.disabled = true);
+  decir(`Preparando la venta del ${porcentaje}%… <b>confírmala en Phantom.</b>`);
+
+  try{
+    const {signature} = await operar({
+      mint: pos.mint, side:'sell',
+      sell_percent: porcentaje,
+      slippage_bps: Math.round(slipPct*100),
+    });
+    decir(`Venta enviada, esperando confirmación… ${enlace(signature)}`);
+    const est = await esperar(signature);
+
+    if(est.state === 'confirmada'){
+      const info = await vivo();
+      const r = (info && info.cap) ? resultado(info.cap) : 0;
+      if(porcentaje >= 100){
+        decir(`<b class="good">Liquidada.</b> Resultado: ` +
+              `<b class="${r>=0?'good':'bad'}">${(r>=0?'+':'')+fiatPos(r)}</b>. ${enlace(signature)}`);
+        cerrarPosicion();
+      }else{
+        pos.sizeEur = pos.sizeEur * (1 - porcentaje/100);
+        stopArmado = true;
+        decir(`<b class="good">Vendido el ${porcentaje}%.</b> Sigue abierta el resto. ${enlace(signature)}`);
+        [$('btnVender'),$('btnV25'),$('btnV50')].forEach(b => b.disabled = false);
+      }
+    }else{
+      decir(`<b class="warn">Venta sin confirmar todavía.</b> ${enlace(signature)}`);
+      [$('btnVender'),$('btnV25'),$('btnV50')].forEach(b => b.disabled = false);
+    }
+  }catch(e){
+    decir(`<b class="bad">No se vendió:</b> ${e.message}`);
+    [$('btnVender'),$('btnV25'),$('btnV50')].forEach(b => b.disabled = false);
+  }finally{
+    operando = false;
+  }
+}
+
+/** Deja la pantalla como si no hubiera posición. Estaba repetido y se olvidaba algún campo. */
+function cerrarPosicion(){
+  pos = null; lecturas = [];
+  $('btnComprar').disabled = false;
+  [$('btnVender'),$('btnV25'),$('btnV50')].forEach(b => b.disabled = true);
+  $('btnVender').textContent = 'LIQUIDAR TODO';
+  $('marcaSim').innerHTML = '';
+  $('pnl').textContent = '—'; $('pnl').className = 'big';
+  $('stopFill').style.width = '100%';
+  $('btnStop').textContent = 'stop: —';
+  ['entrada','actual','maximo','stopEn'].forEach(id => $(id).textContent = '—');
+}
+
+// --- Atajos de teclado ------------------------------------------------------
+//
+// Shift = comprar, Comando = vender. Son teclas que se pulsan a todas horas —Shift para las
+// mayusculas, Comando para pegar con ⌘V— asi que atarlas a secas convertiria un ⌘V en una
+// compra. Se exigen dos cosas para que disparen:
+//
+//   1. Un TOQUE LIMPIO: pulsar y soltar sin que se toque ninguna otra tecla por el camino.
+//      Asi ⌘V, ⌘R, ⌘Tab o una mayuscula no disparan nada.
+//   2. Que el foco NO este en un campo. Mientras escribes o pegas el mint, estan apagados.
+//
+// Y no hay atajo para «liquidar el 25 o el 50»: los atajos son para lo urgente, y afinar el
+// porcentaje no lo es.
+let atajoTecla = null;
+let atajoLimpio = false;
+// Doble toque, no uno solo. Shift y Comando se pulsan sin querer constantemente —empiezas a
+// escribir y te arrepientes, cambias de ventana— y con un solo toque eso disparaba COMPRAR.
+// Se veia como un «Falta el mint» salido de la nada, que es peor que un atajo que no va:
+// con el campo lleno habria sido una compra que nadie pidio.
+let ultimoToque = {tecla: null, cuando: 0};
+const VENTANA_DOBLE_TOQUE_MS = 450;
+
+const escribiendo = () => {
+  const el = document.activeElement;
+  return !!el && /^(input|select|textarea)$/i.test(el.tagName);
+};
+
+document.addEventListener('keydown', (e) => {
+  if(!$('atajos').checked || escribiendo()){ atajoTecla = null; return; }
+  if(e.key === 'Shift' || e.key === 'Meta'){
+    if(atajoTecla === null){ atajoTecla = e.key; atajoLimpio = true; }
+  }else{
+    atajoLimpio = false;   // se ha pulsado algo mas: ya no es un toque limpio
+  }
+});
+
+document.addEventListener('keyup', (e) => {
+  if(e.key !== atajoTecla) return;
+  const tecla = atajoTecla;
+  atajoTecla = null;
+  if(!atajoLimpio || !$('atajos').checked || escribiendo()) return;
+
+  const ahora = Date.now();
+  const esSegundo = ultimoToque.tecla === tecla && (ahora - ultimoToque.cuando) < VENTANA_DOBLE_TOQUE_MS;
+  ultimoToque = esSegundo ? {tecla: null, cuando: 0} : {tecla, cuando: ahora};
+  if(!esSegundo){
+    // Primer toque: solo se arma y se avisa, sin tocar nada.
+    $('atajoAviso').textContent =
+      (tecla === 'Shift' ? '⇧⇧ para comprar…' : '⌘⌘ para vender…');
+    setTimeout(() => {
+      if(Date.now() - ultimoToque.cuando >= VENTANA_DOBLE_TOQUE_MS) $('atajoAviso').textContent = '';
+    }, VENTANA_DOBLE_TOQUE_MS + 50);
+    return;
+  }
+  $('atajoAviso').textContent = '';
+
+  const boton = tecla === 'Shift' ? $('btnComprar') : $('btnVender');
+  if(boton.disabled){
+    decir(tecla === 'Shift'
+      ? 'Atajo ignorado: ya hay una posición abierta.'
+      : 'Atajo ignorado: no hay nada que vender.', 'warn');
+    return;
+  }
+  // Un destello para que quede claro que el atajo ha hecho algo.
+  boton.style.outline = '2px solid var(--text)';
+  setTimeout(() => { boton.style.outline = ''; }, 220);
+  boton.click();
+});
+
+// Si se cambia de ventana con la tecla pulsada, no debe quedar armada al volver.
+window.addEventListener('blur', () => { atajoTecla = null; atajoLimpio = false; });
+
+$('btnVender').onclick = () => vender(100);
+$('btnV25').onclick    = () => vender(25);
+$('btnV50').onclick    = () => vender(50);
+
+/** Rearma el stop desde el precio actual, sin recargar la página. */
+$('btnStop').onclick = () => {
+  if(!pos){ decir('No hay posición que vigilar.', 'warn'); return; }
+  pos.peakCap = 0;   // el próximo tick lo fija en el precio de ahora
+  lecturas = [];     // y el suavizado vuelve a empezar, sin arrastrar el máximo viejo
+  stopArmado = true; avisado = false;
+  $('btnVender').textContent = 'LIQUIDAR TODO';
+  decir('Stop rearmado desde el precio actual.');
+};
+
+recuperarAjustes();
+ajustarFormularioStop();
+RECUERDA.forEach(id => $(id).addEventListener('change', guardarAjustes));
+INTERRUPTORES.forEach(id => $(id).addEventListener('change', guardarAjustes));
+$('mint').addEventListener('input', guardarAjustes);
+(() => {
+  const m = limpiarMint($('mint').value);
+  if(m){ $('linkPump').href = `https://pump.fun/${m}`; calentar(m); }
+})();
+
+tick();
+// La API sirve esto desde memoria y admite este ritmo sin tocar el RPC por cada consulta.
+setInterval(tick, 800);
+</script>
+</body>
+</html>

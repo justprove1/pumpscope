@@ -54,6 +54,8 @@ services:
       # mismas variables apuntan a localhost, que es lo correcto para el host.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mit}:${POSTGRES_PASSWORD:-mit}@postgres:5432/${POSTGRES_DB:-mit}
       REDIS_URL: redis://redis:6379/0
+      # El firmante solo es alcanzable por nombre de servicio, dentro de la red interna.
+      SIGNER_URL: http://signer:8100
     ports:
       - "127.0.0.1:8000:8000"
     depends_on:
@@ -73,6 +75,11 @@ services:
       # mismas variables apuntan a localhost, que es lo correcto para el host.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-mit}:${POSTGRES_PASSWORD:-mit}@postgres:5432/${POSTGRES_DB:-mit}
       REDIS_URL: redis://redis:6379/0
+      # Corpus de entrenamiento: cada token que "explota" se graba aqui como ejemplo etiquetado.
+      TRAINING_CORPUS_DIR: /data/training
+    volumes:
+      # Persistente en el host: sobrevive a reinicios y es inspeccionable.
+      - ./data/training:/data/training
     depends_on:
       postgres: {condition: service_healthy}
       redis: {condition: service_healthy}
@@ -88,16 +95,19 @@ services:
     environment:
       APP_ENV: ${APP_ENV:-local}
       SIGNER_MODE: ${SIGNER_MODE:-disabled}
-      SIGNER_SHARED_SECRET: ${SIGNER_SHARED_SECRET:-}
-      SIGNER_MAX_DAILY_SOL: ${SIGNER_MAX_DAILY_SOL:-0}
-      SIGNER_PROGRAM_ALLOWLIST: ${SIGNER_PROGRAM_ALLOWLIST:-}
-      ENCRYPTED_KEY_PATH: /run/secrets/trading_key.enc
-      KEY_ENCRYPTION_PASSWORD_FILE: /run/secrets/key_password
-    # Los secretos se montan solo aquí. Ningún otro servicio los ve.
-    # Descomentar al llegar a Fase 6, con los archivos ya creados fuera del repo.
-    # secrets:
-    #   - trading_key
-    #   - key_password
+      SIGNER_PORT: "8100"
+      # Topes deliberadamente pequeños. Son el techo de lo que se puede perder en un día si
+      # todo lo demás falla, así que subirlos tiene que ser una decisión consciente.
+      SIGNER_MAX_ORDER_SOL: ${SIGNER_MAX_ORDER_SOL:-0.05}
+      SIGNER_MAX_DAILY_SOL: ${SIGNER_MAX_DAILY_SOL:-0.2}
+      SIGNER_KEY_PATH: /data/signer/trading_key.enc
+      SIGNER_PASSWORD_PATH: /data/signer/key_password
+    volumes:
+      # La clave cifrada y su contraseña viven aquí, fuera del repositorio y solo montadas en
+      # este servicio. Ningún otro contenedor tiene acceso a este volumen.
+      - signerdata:/data/signer
+    # El sistema de ficheros del contenedor sigue siendo de solo lectura: el volumen montado
+    # es lo unico escribible, y ahi solo vive la clave cifrada.
     read_only: true
     tmpfs:
       - /tmp
@@ -105,6 +115,18 @@ services:
     security_opt:
       - no-new-privileges:true
     networks: [mit-internal]
+    restart: unless-stopped
+
+  # Panel compacto para operar A MANO con pump.fun al lado. Es una sola pagina estatica: no
+  # necesita build ni dependencias, y se sirve tal cual desde el disco.
+  panel:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./apps/panel:/usr/share/nginx/html:ro
+    ports:
+      - "127.0.0.1:4000:80"
+    depends_on: [api]
+    networks: [mit-public]
     restart: unless-stopped
 
   web:
@@ -156,6 +178,8 @@ volumes:
   redisdata:
   promdata:
   grafanadata:
+  # Clave cifrada del firmante. Volumen propio, montado SOLO en el servicio `signer`.
+  signerdata:
 
 # secrets:
 #   trading_key:

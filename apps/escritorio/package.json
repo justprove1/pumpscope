@@ -1,0 +1,26 @@
+{
+  "name": "pumpscope-trader",
+  "productName": "Pumpscope Trader",
+  "version": "1.0.0",
+  "description": "Panel de operativa de Pumpscope como programa de escritorio",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "empaquetar": "electron-builder --mac --dir",
+    "dmg": "electron-builder --mac dmg"
+  },
+  "build": {
+    "appId": "local.pumpscope.trader",
+    "productName": "Pumpscope Trader",
+    "directories": {"output": "dist"},
+    "files": ["main.js", "package.json"],
+    "mac": {
+      "category": "public.app-category.finance",
+      "target": ["dmg"]
+    }
+  },
+  "devDependencies": {
+    "electron": "^43.3.0"
+  }
+}
