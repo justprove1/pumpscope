@@ -35,26 +35,36 @@ def detect_whale(events: list[TradeEvent]) -> WhaleAlert:
     precio. Se mide RELATIVO a la operacion tipica del propio token. Una compra 5 veces mayor
     que la mediana, o una wallet que concentra buena parte del volumen reciente, es senal.
     """
-    if len(events) < 4:
-        return WhaleAlert(False, "", 0.0, 0.0, "", "muestra insuficiente")
+    # **Solo cuentan las operaciones con wallet identificada.** Las que llegan por PumpSwap
+    # traen `user` vacio a proposito: en ese formato no esta en posicion fija y el decoder no
+    # lo inventa. Si se dejan pasar, TODAS caen en la misma clave "" y el detector concluye
+    # que una sola cartera concentra el 100% del volumen. Eso es exactamente lo que estaba
+    # pasando: una ballena permanente y falsa en cada token que pasaba por ahi.
+    identificados = [e for e in events if e.user]
+    if len(identificados) < 4:
+        return WhaleAlert(False, "", 0.0, 0.0, "", "sin operaciones con cartera identificada")
 
-    amounts = [e.sol_amount for e in events if e.sol_amount > 0]
+    amounts = [e.sol_amount for e in identificados if e.sol_amount > 0]
     if not amounts:
         return WhaleAlert(False, "", 0.0, 0.0, "", "sin importes")
     median = statistics.median(amounts)
     total = sum(amounts)
 
-    # Volumen por wallet en la ventana observada.
+    # Concentracion sobre DISTINTAS carteras. Con una sola no hay concentracion que medir:
+    # el 100% de un unico participante no dice nada del token.
     by_wallet: dict[str, float] = {}
     dir_by_wallet: dict[str, int] = {}
-    for e in events:
+    for e in identificados:
         by_wallet[e.user] = by_wallet.get(e.user, 0.0) + e.sol_amount
         dir_by_wallet[e.user] = dir_by_wallet.get(e.user, 0) + (1 if e.is_buy else -1)
+
+    if len(by_wallet) < 2:
+        return WhaleAlert(False, "", 0.0, 0.0, "", "una sola cartera observada: nada que comparar")
 
     wallet = max(by_wallet, key=lambda w: by_wallet[w])
     volume = by_wallet[wallet]
     share = volume / total if total > 0 else 0.0
-    biggest = max(events, key=lambda e: e.sol_amount)
+    biggest = max(identificados, key=lambda e: e.sol_amount)
 
     is_whale = share >= 0.35 or (median > 0 and biggest.sol_amount >= median * 5)
     if not is_whale:

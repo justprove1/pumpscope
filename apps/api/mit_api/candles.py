@@ -11,9 +11,10 @@ Dos cosas distintas y etiquetadas como tales:
   velas — cuerpo entre p25 y p75, mechas entre p10 y p90. Si la vela sale enorme, significa
   que no se sabe, y eso es informacion.
 
-**Cache con refresco en segundo plano.** El cliente lee de memoria en microsegundos; un
-refrescador toca el RPC cada ~1,5 s. Sin esto, un cliente pidiendo cada 500 ms generaria
-docenas de llamadas por segundo y el 429 llegaria en un minuto.
+**Alimentado por WebSocket.** El estado en vivo se llena desde una suscripcion `logsSubscribe`
+(ver `LiveTracker`), no desde `getTransaction`: el endpoint publico estrangula esa llamada REST
+con 429, pero el stream de logs no. El cliente lee de memoria en microsegundos; una sola
+suscripcion por mint alimenta a todos los que lo miran.
 """
 
 from __future__ import annotations
@@ -21,19 +22,26 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import math
+import os
 import time
 from dataclasses import dataclass, field
 from decimal import Decimal
+from typing import Any
 
+import websockets
 from mit_pumpfun.curve import CurveState
 from mit_pumpfun.events import TradeEvent, find_trade_events
+from mit_pumpfun.graduation import mentions_graduation
+from mit_pumpfun.pumpswap import find_pumpswap_trades
 from mit_shared.types import LAMPORTS_PER_SOL
-from mit_solana.rpc import RpcError, RpcLimits, RpcRateLimitedError, SolanaRpc
+from mit_solana.logs_stream import LogConnection, ResilientLogStream
 
-# Refresco del cache. Por debajo de esto el endpoint publico empieza a cortar.
-REFRESH_SECONDS = 1.5
-# Un mint deja de refrescarse si nadie lo mira en este tiempo: no se gasta cuota en pestanas
-# que el usuario cerro hace media hora.
+from mit_api.trade import forget_graduation
+
+# WebSocket publico por defecto. Se puede sustituir por Helius via env sin tocar codigo.
+DEFAULT_WSS = "wss://api.mainnet-beta.solana.com"
+# Un mint deja de vigilarse si nadie lo mira en este tiempo: no se mantiene una suscripcion
+# viva por una pestana que el usuario cerro hace media hora.
 IDLE_TIMEOUT_SECONDS = 120.0
 BUCKET_SECONDS = 1
 
@@ -161,6 +169,9 @@ class TokenLiveState:
     curve: CurveState | None = None
     last_refresh: float = 0.0
     last_access: float = field(default_factory=time.monotonic)
+    connected: bool = False
+    # El token ya no opera en la bonding curve sino en PumpSwap: gradúo.
+    graduated: bool = False
     refresh_ms: float = 0.0
     error: str = ""
 
@@ -173,15 +184,29 @@ class TokenLiveState:
 
 
 class LiveTracker:
-    """Vigila mints en segundo plano y sirve su estado desde memoria.
+    """Vigila mints por WebSocket y sirve su estado desde memoria.
 
-    El cliente puede preguntar cada 500 ms sin coste: lee del cache. Solo el refrescador
-    toca la red, y a un ritmo que el endpoint publico tolera.
+    En vez de pedir el historico con `getTransaction` —que el endpoint publico estrangula con
+    429 al primer intento—, se suscribe a `logsSubscribe` con `mentions=[mint]`. Cada compra o
+    venta llega como una notificacion cuyos logs ya traen el `TradeEvent` completo: se decodifica
+    al vuelo, sin una sola llamada REST. El coste por operacion es un `base64.b64decode`.
+
+    Contrapartida: solo se ven las operaciones ocurridas DESDE que empieza la vigilancia. No hay
+    backfill. Para un token activo eso es una operacion por segundo; para uno parado no hay nada
+    que mostrar, que es la respuesta correcta.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, wss_url: str | None = None) -> None:
         self._states: dict[str, TokenLiveState] = {}
         self._tasks: dict[str, asyncio.Task[None]] = {}
+        helius_key = os.environ.get("HELIUS_API_KEY", "").strip()
+        helius_wss = os.environ.get("HELIUS_WSS_URL", "").strip()
+        if wss_url:
+            self._wss_url = wss_url
+        elif helius_key and helius_wss:
+            self._wss_url = helius_wss
+        else:
+            self._wss_url = os.environ.get("SOLANA_FALLBACK_WSS_URL", DEFAULT_WSS)
 
     async def close(self) -> None:
         for task in self._tasks.values():
@@ -204,59 +229,106 @@ class LiveTracker:
             self._states[mint] = state
         state.touch()
         if mint not in self._tasks or self._tasks[mint].done():
-            self._tasks[mint] = asyncio.create_task(self._refresh_loop(state))
+            self._tasks[mint] = asyncio.create_task(self._watch_loop(state))
         return state
 
-    async def _refresh_loop(self, state: TokenLiveState) -> None:
-        async with SolanaRpc(
-            limits=RpcLimits(requests_per_second=8.0, max_attempts=3, initial_backoff=0.5)
-        ) as rpc:
-            while not state.idle:
-                started = time.monotonic()
-                try:
-                    await self._refresh_once(rpc, state)
-                    state.error = ""
-                except (RpcError, RpcRateLimitedError) as error:
-                    state.error = str(error)[:120]
-                except Exception as error:
-                    state.error = f"{type(error).__name__}: {error}"[:120]
-                state.refresh_ms = (time.monotonic() - started) * 1000
-                state.last_refresh = time.monotonic()
-                await asyncio.sleep(REFRESH_SECONDS)
+    async def _connect(self) -> LogConnection:
+        return await websockets.connect(self._wss_url, ping_interval=20, max_size=20_000_000)
 
-    async def _refresh_once(self, rpc: SolanaRpc, state: TokenLiveState) -> None:
-        """Trae solo lo NUEVO: las firmas ya vistas no se vuelven a descargar."""
-        limit = 40 if not state.events else 12
-        signatures = await rpc.get_signatures(state.mint, limit=limit)
-        fresh = [s for s in signatures if s.get("signature") not in state.seen][:8]
+    async def _watch_loop(self, state: TokenLiveState) -> None:
+        """Consume el stream WS hasta que el mint quede ocioso.
 
-        for entry in reversed(fresh):
-            signature = entry.get("signature")
-            if not signature or entry.get("err"):
-                if signature:
-                    state.seen.add(signature)
-                continue
-            transaction = await rpc.get_transaction(signature)
-            state.seen.add(signature)
-            if not transaction:
-                continue
-            logs = (transaction.get("meta") or {}).get("logMessages") or []
-            state.events.extend(find_trade_events(logs))
+        El stream se reconecta solo ante cualquier corte; aqui solo se vigila el ocio para
+        soltar la suscripcion cuando nadie mira. La suscripcion filtra por el mint, asi que
+        solo llegan transacciones que lo mencionan.
+        """
+        stream = ResilientLogStream(state.mint, self._connect, silence_timeout=25.0)
+        consumer = asyncio.create_task(self._consume(stream, state))
+        try:
+            # Vigilancia de ocio por tiempo (last_access), no por evento: un sondeo de 1 s es
+            # el mecanismo correcto aqui, no un asyncio.Event.
+            while not state.idle and not consumer.done():  # noqa: ASYNC110
+                await asyncio.sleep(1.0)
+            if consumer.done() and (exc := consumer.exception()) is not None:
+                state.error = f"{type(exc).__name__}: {exc}"[:120]
+        finally:
+            state.connected = False
+            consumer.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await consumer
 
-        # Ventana acotada: un proceso 24/7 con la lista creciendo es una fuga de memoria.
-        if len(state.events) > 600:
-            state.events = state.events[-600:]
-        if len(state.seen) > 2000:
-            state.seen = set(list(state.seen)[-2000:])
+    async def _consume(self, stream: ResilientLogStream, state: TokenLiveState) -> None:
+        async for notification in stream:
+            state.connected = True
+            self._ingest(notification, state)
 
-        if state.events:
-            latest = max(state.events, key=lambda e: e.timestamp)
+    def _ingest(self, notification: dict[str, Any], state: TokenLiveState) -> None:
+        """Decodifica una notificacion de log y actualiza el estado. No lanza."""
+        try:
+            value = ((notification.get("params") or {}).get("result") or {}).get("value") or {}
+            if value.get("err"):
+                return
+            signature = value.get("signature")
+            if signature:
+                if signature in state.seen:
+                    return
+                state.seen.add(signature)
+            logs = value.get("logs") or []
+            # Un router puede empaquetar operaciones de varios tokens en una tx: solo cuentan
+            # las de ESTE mint.
+            fresh = [event for event in find_trade_events(logs) if event.mint == state.mint]
+            if not fresh:
+                # Sin eventos de la curva: puede que el token haya GRADUADO y opere ya en
+                # PumpSwap. Esos eventos no traen el mint, pero la suscripcion ya filtra por el.
+                # Se convierten a TradeEvent porque su forma es identica: asi velas, traccion,
+                # ballenas y prerrebotes siguen funcionando sin distinguir el origen.
+                swap_trades = find_pumpswap_trades(logs, state.mint)
+                if swap_trades:
+                    # **Ver operaciones de PumpSwap NO es ver una graduacion.** Basta con que
+                    # una transaccion que menciona el mint pase por ese programa. Con esa
+                    # regla el flag fallaba en 6 de cada 10 tokens, y los falsos positivos
+                    # hacian que el panel se negara a operar tokens vivos. La graduacion es
+                    # una instruccion concreta —`migrate`— y asi es como se reconoce.
+                    if mentions_graduation(logs):
+                        state.graduated = True
+                        # Que lo confirme la cuenta de la curva cuanto antes, sin esperar a
+                        # que caduque lo que hubiera guardado.
+                        forget_graduation(state.mint)
+                    fresh = [
+                        TradeEvent(
+                            mint=trade.mint,
+                            sol_amount=trade.sol_amount,
+                            token_amount=trade.token_amount,
+                            is_buy=trade.is_buy,
+                            user=trade.user,
+                            timestamp=trade.timestamp,
+                            virtual_sol_reserves=trade.virtual_sol_reserves,
+                            virtual_token_reserves=trade.virtual_token_reserves,
+                        )
+                        for trade in swap_trades
+                    ]
+            if not fresh:
+                return
+            state.events.extend(fresh)
+            state.last_refresh = time.monotonic()
+            state.refresh_ms = 0.0
+            state.error = ""
+
+            # Ventana acotada: una suscripcion 24/7 con la lista creciendo es una fuga de memoria.
+            if len(state.events) > 600:
+                state.events = state.events[-600:]
+            if len(state.seen) > 2000:
+                state.seen = set(list(state.seen)[-2000:])
+
+            latest = state.events[-1]
             state.curve = CurveState(
                 virtual_sol_reserves=max(1, latest.virtual_sol_reserves),
                 virtual_token_reserves=max(1, latest.virtual_token_reserves),
                 real_token_reserves=latest.virtual_token_reserves // 2,
                 token_total_supply=1_000_000_000_000_000,
             )
+        except Exception as error:  # una notificacion corrupta no puede tumbar el stream
+            state.error = f"{type(error).__name__}: {error}"[:120]
 
 
 def full_precision(value: Decimal | float, places: int = 18) -> str:
