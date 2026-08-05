@@ -1,9 +1,11 @@
 """Punto de entrada del signer aislado.
 
-En Fase 1 el signer NO firma nada: no existe ExecutionEngine al que servir. Arranca, declara
-su modo y se queda esperando. Es intencional que exista y no haga nada: asi el contenedor
-esta en el compose desde el principio, con su aislamiento de red ya probado, y activar la
-firma en Fase 6 no requiere tocar la infraestructura.
+Levanta el servicio de firma en la red interna de Docker. **No publica puerto al host**: solo
+la API puede hablarle, y aun asi el firmante valida por su cuenta cada transaccion.
+
+Arranca SIEMPRE, tambien con `SIGNER_MODE=disabled`. Asi el estado se puede consultar y queda
+claro que esta apagado, en vez de parecer que el contenedor esta roto. Apagado, responde a
+toda peticion de firma que no.
 """
 
 from __future__ import annotations
@@ -11,54 +13,48 @@ from __future__ import annotations
 import json
 import logging
 import os
-import signal
-import time
+
+import uvicorn
 
 LOGGER = logging.getLogger("mit.signer")
+
+PUERTO = int(os.environ.get("SIGNER_PORT", "8100"))
 
 
 def main() -> None:
     logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"), format="%(message)s")
-    mode = os.environ.get("SIGNER_MODE", "disabled")
-    LOGGER.info(json.dumps({"event": "signer_started", "mode": mode, "can_sign": False}))
+    modo = os.environ.get("SIGNER_MODE", "disabled")
+    puede_firmar = modo == "local_encrypted"
 
-    # Se comprueba que el material cifrado se puede abrir ANTES de aceptar peticiones: mejor
-    # fallar al arrancar que descubrirlo con una orden delante.
-    if mode == "local_encrypted":
+    LOGGER.info(
+        json.dumps({"event": "signer_started", "mode": modo, "can_sign": puede_firmar})
+    )
+
+    if puede_firmar:
+        # Se abre la cartera AL ARRANCAR, no con una orden delante: si la contrasena o el
+        # fichero cifrado estan mal, es mejor descubrirlo ahora que en mitad de una venta.
+        from mit_signer.cartera import CarteraError, cargar_o_crear
+
+        try:
+            cartera = cargar_o_crear()
+        except CarteraError as exc:
+            LOGGER.error(json.dumps({"event": "signer_cartera_error", "detail": str(exc)}))
+            raise
         LOGGER.info(
             json.dumps(
                 {
-                    "event": "signer_mode_encrypted",
-                    "verified": False,
-                    "detail": "verificacion de material pendiente de Fase 7",
+                    "event": "signer_listo",
+                    # Solo la direccion publica. La privada no se registra jamas.
+                    "direccion": str(cartera.pubkey()),
+                    "max_por_orden_sol": os.environ.get("SIGNER_MAX_ORDER_SOL", "0.05"),
+                    "max_diario_sol": os.environ.get("SIGNER_MAX_DAILY_SOL", "0.2"),
                 }
             )
         )
 
-    if mode != "disabled":
-        # Se avisa alto y claro: llegar aqui con un modo activo en Fase 1 significa que
-        # alguien configuro la firma antes de que exista nada que firmar.
-        LOGGER.warning(
-            json.dumps(
-                {
-                    "event": "signer_mode_unexpected",
-                    "mode": mode,
-                    "detail": "La firma se implementa en Fase 6 (LIVE_TRADING_CHECKLIST.md).",
-                }
-            )
-        )
+    from mit_signer.servicio import app
 
-    running = True
-
-    def stop(*_: object) -> None:
-        nonlocal running
-        running = False
-
-    signal.signal(signal.SIGTERM, stop)
-    signal.signal(signal.SIGINT, stop)
-    while running:
-        time.sleep(1)
-    LOGGER.info(json.dumps({"event": "signer_stopped"}))
+    uvicorn.run(app, host="0.0.0.0", port=PUERTO, log_level="warning")  # noqa: S104
 
 
 if __name__ == "__main__":

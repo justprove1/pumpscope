@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir pynacl solders fastapi "uvicorn[standard]" pydant
 ENV PYTHONPATH=/app/apps/signer:/app/packages/shared:/app/packages/data-models:/app/packages/solana
 
 RUN useradd --create-home --uid 10002 signer && chown -R signer /app
+# El directorio de la clave se crea con su dueño en la imagen: un volumen nombrado hereda
+# esta propiedad al crearse, y sin eso el proceso no podría escribir su propia clave.
+RUN mkdir -p /data/signer && chown -R signer /data/signer && chmod 700 /data/signer
 USER signer
 
 # Fase 1: SIGNER_MODE=disabled. Arranca, declara su modo y no firma nada.

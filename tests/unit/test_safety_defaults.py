@@ -9,6 +9,8 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+import yaml
+
 REPO = Path(__file__).resolve().parents[2]
 ENV_EXAMPLE = REPO / ".env.example"
 
@@ -87,11 +89,19 @@ def test_env_is_gitignored() -> None:
 
 
 def test_signer_port_is_not_published() -> None:
-    """SECURITY.md 2: el signer solo es alcanzable desde la red interna de Docker."""
-    compose = (REPO / "docker-compose.yml").read_text(encoding="utf-8")
-    signer_block = compose.split("signer:", 1)[1].split("\n  web:", 1)[0]
-    assert "ports:" not in signer_block, "el signer NO puede publicar puertos al host"
-    assert "mit-public" not in signer_block, "el signer no puede estar en la red publica"
+    """SECURITY.md 2: el signer solo es alcanzable desde la red interna de Docker.
+
+    Se lee el YAML en vez de cortar el texto entre dos nombres de servicio. Con el corte,
+    meter un servicio nuevo entre `signer` y `web` hacia que el test mirase ESE servicio: es
+    lo que paso al anadir `panel`, y un test de seguridad que comprueba el servicio
+    equivocado es peor que no tenerlo, porque da via libre en silencio.
+    """
+    compose = yaml.safe_load((REPO / "docker-compose.yml").read_text(encoding="utf-8"))
+    signer = compose["services"]["signer"]
+    assert "ports" not in signer, "el signer NO puede publicar puertos al host"
+    assert "mit-public" not in (signer.get("networks") or []), (
+        "el signer no puede estar en la red publica"
+    )
 
 
 def test_no_provider_adapter_written_without_verified_endpoints() -> None:
