@@ -51,6 +51,7 @@ type Live = {
   candles: Candle[];
   projected: Candle[];
   trades: number;
+  graduated?: boolean;
   volatility_per_second: number;
   refresh_ms: number;
   error: string | null;
@@ -77,6 +78,7 @@ type Sim = {
 
 const CW = 480;
 const CH = 300;
+const PREVISION_COLOR = '#e8b64a';
 const PAD = 46;
 
 function scaleY(value: number, min: number, max: number): number {
@@ -84,8 +86,113 @@ function scaleY(value: number, min: number, max: number): number {
   return CH - PAD - ((value - min) / (max - min)) * (CH - 2 * PAD);
 }
 
-/** Velas japonesas. `projected` se dibuja con relleno translucido: es un cono, no un hecho. */
-function CandleChart({ candles, title, projected }: { candles: Candle[]; title: string; projected: boolean }) {
+/** Previsión: línea amarilla del camino p50 del cono, sobre la referencia real (gris tenue).
+ * NO es una predicción — es la mediana del cono de percentiles. Réplica del diseño pedido. */
+function PrevisionChart({
+  projected,
+  real,
+  title,
+}: {
+  projected: Candle[];
+  real: Candle[];
+  title: string;
+}) {
+  if (projected.length === 0) {
+    return (
+      <section>
+        <h3>{title}</h3>
+        <div className="chart empty-chart">Esperando operaciones on-chain…</div>
+      </section>
+    );
+  }
+  // El camino previsto arranca en el precio actual (último cierre real) y sigue la mediana.
+  const start = real.length > 0 ? real[real.length - 1]!.close : projected[0]!.open;
+  const forecast = [start, ...projected.map((c) => c.close)];
+  const realCloses = real.map((c) => c.close);
+  const domain = [...forecast, ...realCloses].filter((v) => v > 0);
+  const min = Math.min(...domain);
+  const max = Math.max(...domain);
+
+  const fStep = forecast.length > 1 ? (CW - 2 * PAD) / (forecast.length - 1) : 0;
+  const forecastPts = forecast.map((v, i) => `${PAD + fStep * i},${scaleY(v, min, max)}`);
+  const last = forecastPts[forecastPts.length - 1]!.split(',');
+
+  const rStep = realCloses.length > 1 ? (CW - 2 * PAD) / (realCloses.length - 1) : 0;
+  const realPts = realCloses.map((v, i) => `${PAD + rStep * i},${scaleY(v, min, max)}`);
+
+  const changePct = forecast[0]! > 0 ? (forecast[forecast.length - 1]! / forecast[0]! - 1) * 100 : 0;
+  const changeColor = changePct >= 0 ? 'var(--ok)' : 'var(--down)';
+  const startY = scaleY(start, min, max);
+
+  return (
+    <section>
+      <h3 className="prevision-head">
+        <span>{title}</span>
+        <span className="prevision-change" style={{ color: changeColor }}>
+          {changePct >= 0 ? '+' : ''}
+          {changePct.toFixed(1)}%
+        </span>
+      </h3>
+      <svg viewBox={`0 0 ${CW} ${CH}`} className="chart" role="img" aria-label={title}>
+        <line x1={PAD} y1={CH - PAD} x2={CW - PAD} y2={CH - PAD} stroke="var(--border)" />
+        <line x1={PAD} y1={PAD} x2={PAD} y2={CH - PAD} stroke="var(--border)" />
+        {/* Precio de partida: referencia horizontal punteada, como el "hoy" del diseño. */}
+        <line
+          x1={PAD}
+          y1={startY}
+          x2={CW - PAD}
+          y2={startY}
+          stroke="var(--muted)"
+          strokeWidth="1"
+          strokeDasharray="4 4"
+          opacity={0.5}
+        />
+        {realPts.length > 1 && (
+          <polyline
+            points={realPts.join(' ')}
+            fill="none"
+            stroke="var(--muted)"
+            strokeWidth="1.5"
+            opacity={0.55}
+          />
+        )}
+        <polyline
+          points={forecastPts.join(' ')}
+          fill="none"
+          stroke={PREVISION_COLOR}
+          strokeWidth="2.5"
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        <circle cx={Number(last[0])} cy={Number(last[1])} r={3.5} fill={PREVISION_COLOR} />
+        <text x={6} y={PAD + 4} className="axis">{max.toExponential(2)}</text>
+        <text x={6} y={CH - PAD} className="axis">{min.toExponential(2)}</text>
+      </svg>
+      <div className="chart-legend">
+        <span>
+          <span className="swatch" style={{ background: PREVISION_COLOR }} /> precio previsto
+        </span>
+        <span>
+          <span className="swatch" style={{ background: 'var(--muted)' }} /> real (referencia)
+        </span>
+      </div>
+    </section>
+  );
+}
+
+/** Grafica de precio. `variant='line'` dibuja una linea de cierres; `'candles'`, velas japonesas.
+ * `projected` (solo en velas) se dibuja con relleno translucido: es un cono, no un hecho. */
+function CandleChart({
+  candles,
+  title,
+  projected,
+  variant = 'candles',
+}: {
+  candles: Candle[];
+  title: string;
+  projected: boolean;
+  variant?: 'candles' | 'line';
+}) {
   if (candles.length === 0) {
     return (
       <section>
@@ -94,6 +201,41 @@ function CandleChart({ candles, title, projected }: { candles: Candle[]; title: 
       </section>
     );
   }
+
+  if (variant === 'line') {
+    // La linea usa el rango de los CIERRES para llenar el alto: una linea de precios no
+    // necesita las mechas, y asi el movimiento se ve aunque sea pequeño.
+    const closes = candles.map((c) => c.close);
+    const min = Math.min(...closes);
+    const max = Math.max(...closes);
+    const step = candles.length > 1 ? (CW - 2 * PAD) / (candles.length - 1) : 0;
+    const points = candles.map((c, i) => `${PAD + step * i},${scaleY(c.close, min, max)}`);
+    const rising = closes[closes.length - 1]! >= closes[0]!;
+    const color = rising ? 'var(--ok)' : 'var(--down)';
+    const last = points[points.length - 1]!.split(',');
+
+    return (
+      <section>
+        <h3>{title}</h3>
+        <svg viewBox={`0 0 ${CW} ${CH}`} className="chart" role="img" aria-label={title}>
+          <line x1={PAD} y1={CH - PAD} x2={CW - PAD} y2={CH - PAD} stroke="var(--border)" />
+          <line x1={PAD} y1={PAD} x2={PAD} y2={CH - PAD} stroke="var(--border)" />
+          <polyline
+            points={points.join(' ')}
+            fill="none"
+            stroke={color}
+            strokeWidth="2"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+          <circle cx={Number(last[0])} cy={Number(last[1])} r={3.5} fill={color} />
+          <text x={6} y={PAD + 4} className="axis">{max.toExponential(2)}</text>
+          <text x={6} y={CH - PAD} className="axis">{min.toExponential(2)}</text>
+        </svg>
+      </section>
+    );
+  }
+
   const highs = candles.map((c) => c.high);
   const lows = candles.map((c) => c.low);
   const min = Math.min(...lows);
@@ -158,6 +300,15 @@ export default function PrevisionPage() {
     timer.current = setTimeout(() => poll(target), REFRESH_MS);
   }, []);
 
+  // Enlace directo: si llega ?mint=... desde el radar ("Analizar"), se carga solo.
+  useEffect(() => {
+    const param = new URLSearchParams(window.location.search).get('mint');
+    if (!param) return;
+    const cleaned = param.replace(/\/$/, '').split('/').pop() ?? param;
+    setReference(cleaned);
+    setMint(cleaned);
+  }, []);
+
   useEffect(() => {
     if (!mint) return;
     void poll(mint);
@@ -203,6 +354,14 @@ export default function PrevisionPage() {
           <span className="status">
             <span className="dot live" />
             refresco {live.refresh_ms} ms
+          </span>
+        )}
+        {live?.graduated && (
+          <span
+            className="badge graduated"
+            title="Este token ya salió de la bonding curve: opera en PumpSwap. Las velas vienen de ahí."
+          >
+            🎓 graduó · PumpSwap
           </span>
         )}
         {mint && (
@@ -291,12 +450,17 @@ export default function PrevisionPage() {
       {mint && (
         <>
           <div className="charts">
-            <CandleChart candles={live?.projected ?? []} title="Proyección +4s (cono)" projected />
-            <CandleChart candles={live?.candles ?? []} title="Precio real (velas)" projected={false} />
+            <PrevisionChart
+              projected={live?.projected ?? []}
+              real={live?.candles ?? []}
+              title="Previsión"
+            />
+            <CandleChart candles={live?.candles ?? []} title="Precio real (línea)" projected={false} variant="line" />
           </div>
           <p className="mono charts-note">
-            Izquierda: velas proyectadas del cono de percentiles, NO una predicción. Derecha:
-            velas reales on-chain. Volatilidad medida: {live?.volatility_per_second ?? 0}/s.
+            Izquierda: mediana del cono de percentiles (amarillo) sobre el precio real de
+            referencia (gris), NO una predicción. Derecha: precio real on-chain. Volatilidad
+            medida: {live?.volatility_per_second ?? 0}/s.
           </p>
 
           {snapshot && (
