@@ -5,11 +5,12 @@ Uso:
     python3 pumpscope.py <link-o-mint> [opciones]
 
 Opciones:
-    --horizonte H   horizonte en horas (por defecto 6)
+    --horizonte S   horizonte en SEGUNDOS (por defecto 300 = 5 min)
     --why           desglosa como se construyo cada probabilidad
     --explicar X    explicacion en prosa de un escenario: subida|rango|bajada
     --json          salida JSON en vez de informe
     --buscar        busca memecoins en posible tendencia alcista (sin mint)
+    --radar         rastrea memecoins recien nacidas y el historial de su creador
     --live          analiza una vez y deja el precio corriendo en directo
     --watch N       reanaliza cada N segundos
     --no-color      sin codigos ANSI
@@ -23,9 +24,9 @@ from ps import analyze, report, resolve, sources
 
 
 def _parse(argv):
-    opts = {"target": None, "horizonte": 6.0, "why": False,
+    opts = {"target": None, "horizonte": 300.0, "why": False,
             "json": False, "watch": 0, "color": True, "live": False,
-            "buscar": False, "limite": 8,
+            "buscar": False, "radar": False, "limite": 8,
             "explicar": None}
     i = 0
     while i < len(argv):
@@ -44,6 +45,8 @@ def _parse(argv):
                 sys.exit(2)
         elif a == "--buscar":
             opts["buscar"] = True
+        elif a == "--radar":
+            opts["radar"] = True
         elif a == "--limite":
             i += 1
             opts["limite"] = int(argv[i])
@@ -55,7 +58,8 @@ def _parse(argv):
             opts["color"] = False
         elif a == "--horizonte":
             i += 1
-            opts["horizonte"] = float(argv[i])
+            # Se pide en segundos: la escala real de un memecoin.
+            opts["horizonte"] = float(str(argv[i]).replace(",", "."))
         elif a == "--watch":
             i += 1
             opts["watch"] = int(argv[i])
@@ -105,6 +109,35 @@ def _jsonable(a):
         "señales": {k: round(v, 3) for k, v in a["pred"]["signals"].items() if v},
         "avisos": a["warnings"],
     }
+
+
+def run_radar(opts):
+    """Recien nacidas, ordenadas por el historial de quien las lanza."""
+    from ps import radar, report as rp
+    C = rp._c
+    d = radar.busca(limite=opts["limite"])
+    print("\n%sMEMECOINS RECIEN NACIDAS%s" % (C("b"), C("r")))
+    print("%s%s%s" % (C("dim"), "-" * 70, C("r")))
+    print("  %s1 de cada %d gradua la curva (%.3f%%, sobre 832.941 lanzamientos)."
+          "\n  Esto NO predice cual subira: ordena candidatos por señales medibles.%s"
+          % (C("dim"), d["uno_de_cada"], d["base_graduacion"] * 100, C("r")))
+    if d["narrativa_top"]:
+        print("  %sfuncionando ahora: %s%s" % (
+            C("dim"), " · ".join("%s(%d)" % (w, n) for w, n in d["narrativa_top"][:6]),
+            C("r")))
+    for i, x in enumerate(d["filas"], 1):
+        col = C("g") if x["score"] >= 3.5 else (C("y") if x["score"] >= 1.5 else C("dim"))
+        print("\n%s%2d. %-14s%s %s%+.2f%s  %s%.1f min · %s de mcap%s" % (
+            C("b"), i, (x["simbolo"] or "?")[:14], C("r"), col, x["score"], C("r"),
+            C("dim"), x["edad_min"], rp.money(x["mcap"]), C("r")))
+        print("    %s%s%s" % (C("dim"), x["mint"], C("r")))
+        for m in x["a_favor"]:
+            print("      %s+%s %s" % (C("g"), C("r"), m))
+        for m in x["en_contra"]:
+            print("      %s-%s %s" % (C("red"), C("r"), m))
+    for e in d["avisos"]:
+        print("\n  %saviso: %s%s" % (C("y"), e, C("r")))
+    print("\n%s%s%s" % (C("dim"), "-" * 70, C("r")))
 
 
 def run_buscar(opts):
@@ -203,7 +236,7 @@ def run_live(mint, opts, a):
 
 
 def run_once(mint, opts):
-    a = analyze.analyze(mint, horizon_h=opts["horizonte"])
+    a = analyze.analyze(mint, horizon_h=opts["horizonte"] / 3600.0)
     if opts["json"]:
         print(json.dumps(_jsonable(a), indent=2, ensure_ascii=False))
     else:
@@ -215,6 +248,16 @@ def run_once(mint, opts):
 def main(argv):
     opts = _parse(argv)
     report.set_color(opts["color"] and sys.stdout.isatty())
+
+    if opts["radar"]:
+        try:
+            run_radar(opts)
+            return 0
+        except sources.SourceError as e:
+            print("Error de datos: %s" % e, file=sys.stderr)
+            return 1
+        except KeyboardInterrupt:
+            return 130
 
     if opts["buscar"]:
         try:

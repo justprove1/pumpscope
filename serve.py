@@ -14,7 +14,7 @@ import time
 from http.server import BaseHTTPRequestHandler
 from urllib.parse import parse_qs, urlsplit
 
-from ps import analyze, explain, live, resolve, scan, sources
+from ps import analyze, explain, live, radar, resolve, scan, sources
 
 PAGE = r"""<!doctype html>
 <html lang="es"><head>
@@ -32,7 +32,7 @@ input:focus{outline:none;border-color:#3d7dff}
 button{background:#3d7dff;color:#fff;border:0;padding:12px 20px;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;font-family:inherit}
 button:disabled{opacity:.5;cursor:default}
 .opts{display:flex;gap:16px;align-items:center;color:#7d8694;font-size:13px;margin-bottom:24px}
-.opts #h{width:64px;flex:none;padding:5px 8px;font-size:13px;text-align:center}
+.opts #h{flex:none;padding:5px 8px;font-size:13px;background:#151920;border:1px solid #252c37;color:#e6e9ef;border-radius:7px;font-family:inherit}
 .card{background:#111419;border:1px solid #1e242e;border-radius:12px;padding:20px;margin-bottom:16px}
 .tok{font-size:18px;font-weight:600}
 .mint{color:#5c6572;font-size:12px;font-family:ui-monospace,monospace;word-break:break-all;margin-top:2px}
@@ -124,6 +124,24 @@ td{padding:4px 6px;border-bottom:1px solid #161b22}
 .tabs{display:flex;gap:6px;margin-bottom:18px}
 .tab{background:#151920;border:1px solid #252c37;color:#98a1b0;padding:8px 16px;border-radius:8px;font-size:13px;cursor:pointer;font-family:inherit}
 .tab.on{background:#3d7dff;border-color:#3d7dff;color:#fff;font-weight:600}
+.rad{border-bottom:1px solid #1e242e;padding:15px 12px;background:#000;border-radius:9px;margin-bottom:6px}
+.rad:last-child{border:0}
+/* Con potencial: fondo gris para que salte a la vista entre los negros. */
+.rad.pot{background:#2b303a;border:1px solid #3d4552}
+.rad.pot .radN{font-size:16.5px}
+.radTag{font-size:10px;letter-spacing:.06em;text-transform:uppercase;background:#fff;color:#000;
+ border-radius:4px;padding:2px 7px;font-weight:700;margin-left:8px}
+.radH{display:flex;align-items:baseline;gap:9px;color:#fff}
+.radN{font-weight:700;font-size:15.5px;color:#fff}
+.radS{color:#fff;font-size:12.5px;opacity:.72}
+.radSc{margin-left:auto;font-weight:700;font-family:ui-monospace,monospace;color:#fff}
+.radM{color:#fff;opacity:.45;font-size:11px;font-family:ui-monospace,monospace;word-break:break-all;margin:3px 0 7px}
+.radL{font-size:12.5px;color:#fff;padding:2px 0 2px 15px;position:relative;opacity:.92}
+.radL:before{position:absolute;left:0;font-weight:700}
+.radL.p:before{content:'+';color:#3ecf8e}
+.radL.n:before{content:'−';color:#f0616d}
+.radBase{background:#0d1015;border:1px solid #1e242e;border-radius:9px;padding:12px 14px;margin-bottom:14px;color:#fff;font-size:13px}
+.radNar{font-size:12px;color:#fff;opacity:.6;margin-top:7px}
 .row{border-bottom:1px solid #1e242e;padding:14px 0}
 .row:last-child{border:0}
 .rowH{display:flex;align-items:baseline;gap:10px}
@@ -140,17 +158,29 @@ td{padding:4px 6px;border-bottom:1px solid #161b22}
 <div class="tabs">
   <button class="tab on" id="tabA">Analizar token</button>
   <button class="tab" id="tabB">Buscar tendencias</button>
+  <button class="tab" id="tabC">Radar recién nacidas</button>
 </div>
 <form id="f">
   <input id="q" placeholder="https://pump.fun/coin/... o el mint" autocomplete="off" autofocus>
   <button id="go">Analizar</button>
 </form>
 <div class="opts">
-  <label>horizonte <input type="text" inputmode="decimal" id="h" value="6"> h</label>
+  <label>horizonte
+  <select id="h">
+    <option value="15">15 s</option>
+    <option value="30">30 s</option>
+    <option value="60">1 min</option>
+    <option value="120">2 min</option>
+    <option value="300" selected>5 min</option>
+    <option value="900">15 min</option>
+    <option value="1800">30 min</option>
+    <option value="3600">1 h</option>
+  </select></label>
   <label><input type="checkbox" id="w" checked style="flex:none"> mostrar el porqué</label>
 </div>
 <div id="out"></div>
 <div id="outB" style="display:none"></div>
+<div id="outC" style="display:none"></div>
 <div class="foot">
 Modelo estadístico sobre un mercado donde el 68,67% de los tokens muere el mismo día
 y el 0,26% gradúa. Las probabilidades son condicionales y están mal calibradas en las
@@ -161,12 +191,13 @@ const $=s=>document.querySelector(s), out=$('#out');
 let LAST_MINT='', MC3={}, WH=null, FC=null, PATH=[];
 // El input acepta "0,5" y "0.5": se normaliza aqui en vez de confiar en el
 // locale del navegador, que con type=number devolvia cadena vacia.
-function horizonte(){
- const raw=String($('#h').value||'').trim().replace(',','.');
- const v=parseFloat(raw);
- if(!isFinite(v)||v<=0)return 6;
- return Math.min(168,Math.max(0.25,v));
+// El selector trabaja en SEGUNDOS (que es la escala real de un memecoin);
+// la API sigue recibiendo horas, asi que se convierte aqui.
+function horizonteSeg(){
+ const v=parseFloat($('#h').value);
+ return (isFinite(v)&&v>0)?v:300;
 }
+function horizonte(){ return horizonteSeg()/3600; }
 const money=x=>{if(x===null||x===undefined)return'n/d';const a=Math.abs(x);
  if(a===0)return'$0';
  if(a>=1e6)return'$'+(x/1e6).toFixed(2)+'M';if(a>=1e3)return'$'+(x/1e3).toFixed(1)+'k';
@@ -284,22 +315,22 @@ function render(d){
  }
 
  if(d.pronostico&&d.pronostico.p0){
-  FC=d.pronostico; PATH=[];
+  FC=d.pronostico; PATH=[]; MARCAS=[];
   h+='<div class="card"><h2>Previsión vs realidad</h2>'+
-     '<div class="scD" style="font-size:12.5px;color:#7d8694">El cono se congela en el instante del análisis y '+
-     'no se recalcula. La derecha es el precio real llegando en directo. Misma escala en ambas para que la '+
-     'comparación sea justa.</div>'+
+     '<div class="scD" style="font-size:12.5px;color:#7d8694">La línea de previsión se congela en el '+
+     'instante del análisis. Debajo, los puntos de control con el error real en cada momento.</div>'+
      '<div class="gwrap">'+
-       '<div class="gbox"><div class="gtit"><span>Previsión</span><b class="up" id="gFH">—</b></div>'+
+       '<div class="gbox"><div class="gtit"><span>Previsión</span><b id="gFH">—</b></div>'+
          '<canvas class="gcv" id="gF"></canvas>'+
-         '<div class="gleg"><span><i style="background:#3ecf8e"></i>objetivo alza</span>'+
-         '<span><i style="background:rgba(232,179,57,.45)"></i>banda de rango</span>'+
-         '<span><i style="background:#f0616d"></i>objetivo baja</span></div></div>'+
+         '<div class="gleg"><span><i style="background:#e8b339"></i>precio previsto</span>'+
+         '<span><i style="background:#2a3140"></i>real (referencia)</span></div></div>'+
        '<div class="gbox"><div class="gtit"><span>Precio real</span><b id="gRH">—</b></div>'+
          '<canvas class="gcv" id="gR"></canvas>'+
-         '<div class="gleg"><span><i style="background:#5c8cff"></i>precio en vivo</span>'+
-         '<span><i style="background:#2a3140"></i>banda prevista</span></div></div>'+
-     '</div><div class="gscore" id="gS">esperando ticks…</div></div>';
+         '<div class="gleg"><span><i style="background:#5c8cff"></i>precio real</span>'+
+         '<span><i style="background:#2a3140"></i>previsto (referencia)</span></div></div>'+
+     '</div>'+
+     '<div id="gTbl"></div>'+
+     '<div class="gscore" id="gS">esperando ticks…</div></div>';
  }
 
  if(d.setup){
@@ -461,16 +492,63 @@ function startLive(d){
 }
 
 
-function setTab(b){
- $('#tabA').classList.toggle('on',!b); $('#tabB').classList.toggle('on',b);
- $('#f').style.display=b?'none':'flex';
- document.querySelector('.opts').style.display=b?'none':'flex';
- $('#out').style.display=b?'none':'block';
- $('#outB').style.display=b?'block':'none';
- if(b&&!$('#outB').dataset.loaded)buscar();
+function setTab(q){        // 'A' analizar · 'B' tendencias · 'C' radar
+ ['A','B','C'].forEach(k=>$('#tab'+k).classList.toggle('on',k===q));
+ const esA=q==='A';
+ $('#f').style.display=esA?'flex':'none';
+ document.querySelector('.opts').style.display=esA?'flex':'none';
+ $('#out').style.display=esA?'block':'none';
+ $('#outB').style.display=q==='B'?'block':'none';
+ $('#outC').style.display=q==='C'?'block':'none';
+ if(q==='B'&&!$('#outB').dataset.loaded)buscar();
+ if(q==='C'&&!$('#outC').dataset.loaded)radar();
 }
-$('#tabA').onclick=()=>setTab(false);
-$('#tabB').onclick=()=>{setTab(true);};
+$('#tabA').onclick=()=>setTab('A');
+$('#tabB').onclick=()=>setTab('B');
+$('#tabC').onclick=()=>setTab('C');
+
+async function radar(){
+ const o=$('#outC');
+ o.innerHTML='<div class="card"><div class="spin">rastreando lanzamientos y el historial de cada creador…</div></div>';
+ try{
+  const r=await fetch('/radar?limite=12');
+  const d=await r.json();
+  if(d.error){o.innerHTML='<div class="err">'+esc(d.error)+'</div>';return;}
+  let h='<div class="card"><h2 style="color:#fff">Memecoins recién nacidas</h2>'+
+    '<div class="radBase"><b>1 de cada '+d.uno_de_cada+'</b> gradúa la curva '+
+    '('+(d.base_graduacion*100).toFixed(3)+'%, sobre 832.941 lanzamientos analizados). '+
+    'Esto <b>no predice</b> cuál subirá: ordena candidatos por señales medibles.'+
+    (d.narrativa_top&&d.narrativa_top.length?'<div class="radNar">funcionando ahora: '+
+      d.narrativa_top.map(x=>esc(x[0])+' ('+x[1]+')').join(' · ')+'</div>':'')+
+    '<div class="radNar">'+d.analizados+' analizados · '+d.con_historial+' con historial de creador</div>'+
+    '<div class="radNar" style="margin-top:6px">'+
+      '<span style="display:inline-block;width:11px;height:11px;background:#2b303a;border:1px solid #3d4552;border-radius:3px;vertical-align:-1px"></span>'+
+      ' con potencial (puntuación ≥ 3) &nbsp;·&nbsp; '+
+      '<span style="display:inline-block;width:11px;height:11px;background:#000;border:1px solid #1e242e;border-radius:3px;vertical-align:-1px"></span>'+
+      ' el resto</div></div>';
+  if(!d.filas.length)h+='<div class="scD" style="color:#fff">Ningún lanzamiento reciente que analizar.</div>';
+  d.filas.forEach((x,i)=>{
+   // Con potencial = puntuacion alta. Se marca con fondo gris; el resto
+   // queda en negro, para que la diferencia se vea de un vistazo.
+   const pot = x.score >= 3.0;
+   h+='<div class="rad'+(pot?' pot':'')+'"><div class="radH">'+
+      '<span class="radN">'+esc(x.simbolo||'?')+'</span>'+
+      '<span class="radS">'+esc(x.nombre||'')+'</span>'+
+      (pot?'<span class="radTag">con potencial</span>':'')+
+      '<span class="radSc">'+(x.score>=0?'+':'')+x.score.toFixed(2)+'</span></div>'+
+      '<div class="radM">'+esc(x.mint||'')+'</div>'+
+      '<div class="radL" style="padding-left:0;opacity:.62">'+x.edad_min.toFixed(1)+' min · '+
+      money(x.mcap)+' de mcap'+(x.replies?' · '+x.replies+' comentarios':'')+'</div>';
+   (x.a_favor||[]).forEach(m=>h+='<div class="radL p">'+esc(m)+'</div>');
+   (x.en_contra||[]).forEach(m=>h+='<div class="radL n">'+esc(m)+'</div>');
+   h+='<button class="rbtn" style="margin-left:0" onclick="analizar(\''+x.mint+'\')">analizar este</button></div>';
+  });
+  h+='</div><div class="card"><div class="scD" style="color:#fff;opacity:.6">'+
+     'El score ordena, no predice. Un creador con buen historial no garantiza nada sobre su próximo token.</div>'+
+     '<button class="rbtn" style="margin-left:0" onclick="radar()">volver a rastrear</button></div>';
+  o.innerHTML=h; o.dataset.loaded='1';
+ }catch(e){o.innerHTML='<div class="err">'+esc(e.message)+'</div>';}
+}
 
 async function buscar(){
  const o=$('#outB');
@@ -498,7 +576,7 @@ async function buscar(){
   o.innerHTML=h; o.dataset.loaded='1';
  }catch(e){o.innerHTML='<div class="err">'+esc(e.message)+'</div>';}
 }
-function analizar(m){ setTab(false); $('#q').value=m; $('#f').dispatchEvent(new Event('submit')); }
+function analizar(m){ setTab('A'); $('#q').value=m; $('#f').dispatchEvent(new Event('submit')); }
 
 
 async function explicar(btn,clase){
@@ -517,15 +595,40 @@ async function explicar(btn,clase){
 }
 
 
-// ---- graficas prevision vs realidad ---------------------------------------
-// El cono se congela en el analisis: nivel(t) = p0 · exp( r_H · (t/H)^hurst ).
-// Ese reescalado por tiempo es lo que hace que a 4 segundos la banda sea
-// estrecha y no el ancho del horizonte completo.
-function nivel(r, t){
- if(!FC||!FC.horizonte_s)return FC?FC.p0:0;
- const sc = Math.pow(Math.max(t,0)/FC.horizonte_s, FC.hurst||0.5);
- return FC.p0*Math.exp(r*sc);
+// ---- prevision vs realidad ------------------------------------------------
+// El cono de bandas se descarto: ver una figura que se ensancha no dice cuanto
+// se esta acertando. Ahora hay UNA linea de precio previsto y UNA de precio
+// real, mas una tabla de puntos de control con el error exacto en cada momento.
+//
+// La linea prevista es la esperanza del modelo, no un escenario suelto:
+//   E[r] = P(sube)·r_sube + P(rango)·r_medio + P(baja)·r_baja
+// y como es una esperanza (termino de deriva), escala LINEAL con el tiempo:
+//   previsto(t) = p0 · exp( E[r] · t/H )
+// Nada de t^hurst aqui: ese exponente describe como crece la INCERTIDUMBRE,
+// no como avanza el valor esperado.
+function rEsperado(){
+ if(!FC)return 0;
+ const rMedio=((FC.r_hi||0)+(FC.r_lo||0))/2;
+ return (FC.p_up||0)*(FC.r_up||0)+(FC.p_rango||0)*rMedio+(FC.p_dn||0)*(FC.r_dn||0);
 }
+function previsto(t){
+ if(!FC||!FC.horizonte_s)return FC?FC.p0:0;
+ // Nunca se proyecta mas alla del horizonte. Sin este tope, en cuanto el
+ // tiempo transcurrido superaba H (pasa con tokens nuevos, cuyo horizonte se
+ // recorta a 15 min) el exponente crecia sin freno y la linea se desplomaba
+ // a -99,9%: una extrapolacion fuera del dominio del modelo, no una prevision.
+ const tt=Math.min(Math.max(t,0), FC.horizonte_s);
+ const r=rEsperado()*(tt/FC.horizonte_s);
+ return FC.p0*Math.exp(Math.max(-1.6, Math.min(1.6, r)));
+}
+function vencida(){
+ if(!FC||!PATH.length)return false;
+ return (PATH[PATH.length-1].t-FC.t0) > FC.horizonte_s;
+}
+
+// Puntos de control: instantes fijos donde se congela la comparacion.
+const CHECKS=[15,30,60,120,300,600,1800];
+let MARCAS=[];
 
 function prep(cv){
  const dpr=window.devicePixelRatio||1, r=cv.getBoundingClientRect();
@@ -538,85 +641,102 @@ function prep(cv){
 function dibuja(){
  const cf=$('#gF'), cr=$('#gR');
  if(!cf||!cr||!FC)return;
- const elapsed = PATH.length ? (PATH[PATH.length-1].t-FC.t0) : 0;
- // Ventana temporal adaptativa: arranca en 60s y crece con los datos.
- const T = Math.min(FC.horizonte_s, Math.max(60, elapsed*1.25));
+ const elapsed=PATH.length?(PATH[PATH.length-1].t-FC.t0):0;
+ // La ventana del grafico tampoco pasa del horizonte del pronostico.
+ const T=Math.min(FC.horizonte_s, Math.max(60,elapsed*1.15));
 
- // Escala Y comun: cubre el cono Y el precio real, para comparar de verdad.
- let lo=Math.min(nivel(FC.r_lo,T),nivel(FC.r_dn,T)), hi=Math.max(nivel(FC.r_hi,T),nivel(FC.r_up,T));
- PATH.forEach(p=>{ if(p.p<lo)lo=p.p; if(p.p>hi)hi=p.p; });
- const pad=(hi-lo)*0.12||FC.p0*0.01; lo-=pad; hi+=pad;
+ // Escala Y comun a las dos: comparar con ejes distintos seria engañoso.
+ let lo=Math.min(FC.p0,previsto(T)), hi=Math.max(FC.p0,previsto(T));
+ PATH.forEach(p=>{if(p.p<lo)lo=p.p; if(p.p>hi)hi=p.p;});
+ const pad=(hi-lo)*0.15||FC.p0*0.004; lo-=pad; hi+=pad;
 
- const PADL=6, PADR=6, PADT=6, PADB=16;
- const mk=(g)=>({
-  X:t=>PADL+(t/T)*(g.w-PADL-PADR),
-  Y:p=>PADT+(1-(p-lo)/(hi-lo))*(g.h-PADT-PADB)
- });
+ const PL=6,PR=6,PT=6,PB=14;
+ const mk=g=>({X:t=>PL+(t/T)*(g.w-PL-PR), Y:p=>PT+(1-(p-lo)/(hi-lo))*(g.h-PT-PB)});
 
- // rejilla + linea del precio de partida
- const grid=(g,m)=>{
+ const base=(g,m)=>{
   g.c.strokeStyle='#161b22'; g.c.lineWidth=1;
-  for(let i=0;i<=3;i++){const y=PADT+i*(g.h-PADT-PADB)/3;
-   g.c.beginPath();g.c.moveTo(PADL,y);g.c.lineTo(g.w-PADR,y);g.c.stroke();}
+  for(let i=0;i<=3;i++){const y=PT+i*(g.h-PT-PB)/3;
+   g.c.beginPath();g.c.moveTo(PL,y);g.c.lineTo(g.w-PR,y);g.c.stroke();}
   g.c.strokeStyle='#2a3140'; g.c.setLineDash([3,3]);
-  g.c.beginPath();g.c.moveTo(PADL,m.Y(FC.p0));g.c.lineTo(g.w-PADR,m.Y(FC.p0));g.c.stroke();
+  g.c.beginPath();g.c.moveTo(PL,m.Y(FC.p0));g.c.lineTo(g.w-PR,m.Y(FC.p0));g.c.stroke();
   g.c.setLineDash([]);
  };
-
- const N=90;
- // ---- izquierda: el cono de prevision ----
- const gf=prep(cf), mf=mk(gf); grid(gf,mf);
- gf.c.beginPath();
- for(let i=0;i<=N;i++){const t=T*i/N; const x=mf.X(t); i?gf.c.lineTo(x,mf.Y(nivel(FC.r_hi,t))):gf.c.moveTo(x,mf.Y(nivel(FC.r_hi,t)));}
- for(let i=N;i>=0;i--){const t=T*i/N; gf.c.lineTo(mf.X(t),mf.Y(nivel(FC.r_lo,t)));}
- gf.c.closePath(); gf.c.fillStyle='rgba(232,179,57,.18)'; gf.c.fill();
- const linea=(g,m,r,col,dash)=>{
-  g.c.beginPath(); g.c.strokeStyle=col; g.c.lineWidth=1.6; g.c.setLineDash(dash||[]);
-  for(let i=0;i<=N;i++){const t=T*i/N,x=m.X(t),y=m.Y(nivel(r,t)); i?g.c.lineTo(x,y):g.c.moveTo(x,y);}
-  g.c.stroke(); g.c.setLineDash([]);
+ const lineaPrev=(g,m,col,w)=>{
+  g.c.beginPath(); g.c.strokeStyle=col; g.c.lineWidth=w;
+  for(let i=0;i<=60;i++){const t=T*i/60,x=m.X(t),y=m.Y(previsto(t)); i?g.c.lineTo(x,y):g.c.moveTo(x,y);}
+  g.c.stroke();
  };
- linea(gf,mf,FC.r_up,'#3ecf8e'); linea(gf,mf,FC.r_dn,'#f0616d');
- linea(gf,mf,FC.r_hi,'rgba(232,179,57,.6)',[2,2]);
- linea(gf,mf,FC.r_lo,'rgba(232,179,57,.6)',[2,2]);
+ const lineaReal=(g,m,col,w)=>{
+  if(!PATH.length)return;
+  g.c.beginPath(); g.c.strokeStyle=col; g.c.lineWidth=w;
+  PATH.forEach((p,i)=>{const x=m.X(Math.min(p.t-FC.t0,T)),y=m.Y(p.p); i?g.c.lineTo(x,y):g.c.moveTo(x,y);});
+  g.c.stroke();
+ };
 
- // ---- derecha: el precio real ----
- const gr=prep(cr), mr=mk(gr); grid(gr,mr);
- linea(gr,mr,FC.r_hi,'#2a3140',[2,2]); linea(gr,mr,FC.r_lo,'#2a3140',[2,2]);
+ // izquierda: previsto en primer plano, real de referencia
+ const gf=prep(cf), mf=mk(gf); base(gf,mf);
+ lineaReal(gf,mf,'#2a3140',1.2); lineaPrev(gf,mf,'#e8b339',2);
+ // derecha: real en primer plano, previsto de referencia
+ const gr=prep(cr), mr=mk(gr); base(gr,mr);
+ lineaPrev(gr,mr,'#2a3140',1.2); lineaReal(gr,mr,'#5c8cff',2);
  if(PATH.length){
-  gr.c.beginPath(); gr.c.strokeStyle='#5c8cff'; gr.c.lineWidth=1.8;
-  PATH.forEach((p,i)=>{const x=mr.X(Math.min(p.t-FC.t0,T)),y=mr.Y(p.p); i?gr.c.lineTo(x,y):gr.c.moveTo(x,y);});
-  gr.c.stroke();
-  const last=PATH[PATH.length-1];
+  const L=PATH[PATH.length-1];
   gr.c.fillStyle='#5c8cff'; gr.c.beginPath();
-  gr.c.arc(mr.X(Math.min(last.t-FC.t0,T)),mr.Y(last.p),3,0,7); gr.c.fill();
+  gr.c.arc(mr.X(Math.min(L.t-FC.t0,T)),mr.Y(L.p),3,0,7); gr.c.fill();
  }
 
- // ---- cabeceras y marcador ----
  const fh=$('#gFH'), rh=$('#gRH');
- if(fh)fh.textContent=pc((Math.exp(FC.r_hi*Math.pow(Math.min(elapsed,T)/FC.horizonte_s,FC.hurst||.5))-1)*100)+' banda alta';
- if(PATH.length&&rh){
-  const ch=(PATH[PATH.length-1].p/FC.p0-1)*100;
-  rh.textContent=pc(ch); rh.className=ch>0?'up':(ch<0?'dn':'rg');
- }
- marcador(elapsed);
+ if(fh){const c=(previsto(elapsed)/FC.p0-1)*100;
+  fh.textContent=pc(c); fh.className=c>0?'up':(c<0?'dn':'rg');}
+ if(rh&&PATH.length){const c=(PATH[PATH.length-1].p/FC.p0-1)*100;
+  rh.textContent=pc(c); rh.className=c>0?'up':(c<0?'dn':'rg');}
+
+ marcas(elapsed); tabla(elapsed);
 }
 
-// Cuanto tiempo lleva el precio real dentro de la banda prevista.
-function marcador(elapsed){
- const el=$('#gS'); if(!el||!FC)return;
- if(PATH.length<2){el.textContent='esperando ticks… (llegan cada ~1,5 s)';return;}
- let dentro=0;
- PATH.forEach(p=>{const t=p.t-FC.t0;
-  if(p.p>=nivel(FC.r_lo,t)&&p.p<=nivel(FC.r_hi,t))dentro++;});
- const pctd=dentro/PATH.length*100;
- const last=PATH[PATH.length-1], tl=last.t-FC.t0;
- let donde,cls;
- if(last.p>nivel(FC.r_hi,tl)){donde='por ENCIMA de la banda (escenario alcista)';cls='up';}
- else if(last.p<nivel(FC.r_lo,tl)){donde='por DEBAJO de la banda (escenario bajista)';cls='dn';}
- else {donde='DENTRO de la banda (escenario de rango)';cls='rg';}
- el.innerHTML='<b>'+Math.round(elapsed)+'s</b> transcurridos · '+PATH.length+' ticks · '+
-   'el precio ha estado <b>'+pctd.toFixed(0)+'%</b> del tiempo dentro de la banda prevista'+
-   ' · ahora está <b class="'+cls+'">'+donde+'</b>';
+// Congela una fila cada vez que se cruza un punto de control.
+function marcas(elapsed){
+ CHECKS.forEach(t=>{
+  if(elapsed<t || MARCAS.some(m=>m.t===t) || !PATH.length)return;
+  let mejor=PATH[0], dm=Infinity;
+  PATH.forEach(p=>{const d=Math.abs((p.t-FC.t0)-t); if(d<dm){dm=d;mejor=p;}});
+  const prev=previsto(t);
+  MARCAS.push({t:t, prev:prev, real:mejor.p,
+   err:(mejor.p/prev-1)*100,
+   dirOk:Math.sign(prev-FC.p0)===Math.sign(mejor.p-FC.p0)||Math.abs(mejor.p/FC.p0-1)<0.0005});
+ });
+}
+
+function etiq(t){return t<60?t+'s':(t<3600?(t/60)+' min':(t/3600)+' h');}
+
+function tabla(elapsed){
+ const el=$('#gTbl'), sc=$('#gS'); if(!el)return;
+ if(!MARCAS.length){
+  el.innerHTML='';
+  if(sc)sc.textContent='esperando al primer punto de control (15 s)…';
+  return;
+ }
+ let h='<table style="margin-top:12px"><tr><th>momento</th><th>previsto</th><th>real</th>'+
+       '<th>error</th><th>dirección</th></tr>';
+ MARCAS.forEach(m=>{
+  const ec=Math.abs(m.err)<0.5?'up':(Math.abs(m.err)<2?'rg':'dn');
+  h+='<tr><td>'+etiq(m.t)+'</td><td>'+m.prev.toFixed(8)+'</td><td>'+m.real.toFixed(8)+'</td>'+
+     '<td class="'+ec+'">'+(m.err>=0?'+':'')+m.err.toFixed(2)+'%</td>'+
+     '<td class="'+(m.dirOk?'up':'dn')+'">'+(m.dirOk?'✓ acertada':'✗ fallada')+'</td></tr>';
+ });
+ h+='</table>';
+ el.innerHTML=h;
+
+ if(sc){
+  const eabs=MARCAS.reduce((a,m)=>a+Math.abs(m.err),0)/MARCAS.length;
+  const ok=MARCAS.filter(m=>m.dirOk).length;
+  const ec=eabs<0.5?'up':(eabs<2?'rg':'dn');
+  sc.innerHTML='<b>'+Math.round(elapsed)+'s</b> · '+PATH.length+' ticks · '+
+    'error medio <b class="'+ec+'">'+eabs.toFixed(2)+'%</b> · '+
+    'dirección acertada <b class="'+(ok*2>=MARCAS.length?'up':'dn')+'">'+ok+' de '+MARCAS.length+'</b>'+
+    (vencida()?'<div class="warn" style="margin-top:5px">⚠ la previsión ha vencido: '+
+      'ya pasó su horizonte. Vuelve a analizar para una nueva.</div>':'');
+ }
 }
 
 function pintaBallenas(w){
@@ -897,6 +1017,19 @@ class Handler(BaseHTTPRequestHandler):
                                    "clase": clase}, ensure_ascii=False)
             except (ValueError, sources.SourceError) as e:
                 body = json.dumps({"error": str(e)}, ensure_ascii=False)
+            except Exception as e:
+                body = json.dumps({"error": "%s: %s" % (type(e).__name__, e)},
+                                  ensure_ascii=False)
+            return self._send(200, body, "application/json; charset=utf-8")
+
+        if u.path == "/radar":
+            try:
+                lim = int((parse_qs(u.query).get("limite") or ["12"])[0])
+            except ValueError:
+                lim = 12
+            try:
+                body = json.dumps(radar.busca(limite=max(1, min(25, lim))),
+                                  ensure_ascii=False, default=str)
             except Exception as e:
                 body = json.dumps({"error": "%s: %s" % (type(e).__name__, e)},
                                   ensure_ascii=False)

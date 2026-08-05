@@ -19,26 +19,54 @@ def _money(x):
 
 
 def _fmt_h(h):
+    """Formatea un intervalo en la unidad que le corresponde."""
     if h is None:
         return "n/d"
-    if h < 1:
-        return "%.0f min" % (h * 60)
+    seg = h * 3600.0
+    if seg < 90:
+        return "%.0f s" % seg
+    if seg < 5400:
+        m = seg / 60.0
+        return ("%.0f min" % m) if abs(m - round(m)) < 0.05 else ("%.1f min" % m)
     if h < 48:
         return "%.1f h" % h
     return "%.1f dias" % (h / 24.0)
 
 
-def _timeframe_for(age_h):
+def _timeframe_for(age_h, horizon_h=None):
+    """Elige la resolucion de vela segun la edad Y el horizonte pedido.
+
+    Antes solo miraba la edad, y eso rompia los horizontes cortos: a un token
+    de tres semanas le asignaba velas de 1 hora, con las que pronosticar a 30
+    segundos no significa nada. La vela tiene que ser bastante mas fina que el
+    horizonte -- se exige al menos cinco velas dentro de el -- porque con una
+    sola vela no hay ni variacion que medir.
+    """
     if age_h is None or age_h < 3:
-        return ("minute", 1, 1)
-    if age_h < 24:
-        return ("minute", 5, 5)
-    if age_h < 24 * 7:
-        return ("minute", 15, 15)
-    return ("hour", 1, 60)
+        cand = ("minute", 1, 1)
+    elif age_h < 24:
+        cand = ("minute", 5, 5)
+    elif age_h < 24 * 7:
+        cand = ("minute", 15, 15)
+    else:
+        cand = ("hour", 1, 60)
+
+    if horizon_h:
+        # Como mucho, un quinto del horizonte.
+        max_min = (horizon_h * 60.0) / 5.0
+        for opt in (("hour", 1, 60), ("minute", 15, 15), ("minute", 5, 5),
+                    ("minute", 1, 1)):
+            if opt[2] <= max_min:
+                cand = opt if opt[2] <= cand[2] else cand
+                break
+        else:
+            # Ni las velas de 1 minuto entran: hara falta reconstruirlas desde
+            # los trades individuales (lo hace analyze mas abajo).
+            cand = ("minute", 1, 1)
+    return cand
 
 
-def analyze(mint, horizon_h=6.0):
+def analyze(mint, horizon_h=5.0 / 60.0):
     now = time.time()
     warn = []
     sources.take_errors()   # arranca con el acumulador limpio
@@ -72,7 +100,7 @@ def analyze(mint, horizon_h=6.0):
     if not pool_addr:
         warn.append("No se pudo determinar el pool del token.")
 
-    tf_unit, tf_agg, tf_min = _timeframe_for(age.get("age_h"))
+    tf_unit, tf_agg, tf_min = _timeframe_for(age.get("age_h"), horizon_h)
     candles = sources.gt_ohlcv(pool_addr, tf_unit, tf_agg, limit=300) if pool_addr else []
     if len(candles) < 10 and tf_min > 1:
         alt = sources.gt_ohlcv(pool_addr, "minute", 1, limit=300) if pool_addr else []
@@ -90,20 +118,32 @@ def analyze(mint, horizon_h=6.0):
     trades = sources.gt_trades(pool_addr) if pool_addr else []
     ds_pair = sources.ds_token(mint)
 
-    # Token demasiado joven para que existan velas de 1m suficientes: las
-    # reconstruimos desde los trades individuales, eligiendo el bucket que
-    # produzca ~60 velas dentro de la ventana observada.
+    # Velas reconstruidas desde los trades individuales. Hacen falta en dos
+    # situaciones distintas:
+    #   a) el token es tan nuevo que no existen velas de 1m suficientes;
+    #   b) el horizonte es de segundos, y la vela mas fina que publica
+    #      GeckoTerminal (1 minuto) es mas larga que el propio horizonte.
+    # En el caso (b) no vale con tener muchas velas: son de la granularidad
+    # equivocada, y pronosticar a 30 s con velas de 60 s no mide nada.
     tf_label = "%d%s" % (tf_agg, "m" if tf_unit == "minute" else "h")
-    if len(candles) < 20 and len(trades) >= 24:
+    horiz_s = horizon_h * 3600.0
+    bucket_pedido = max(1, int(horiz_s / 6.0))      # ~6 velas dentro del horizonte
+    necesita_finas = bucket_pedido < 60 and len(trades) >= 24
+
+    if (len(candles) < 20 or necesita_finas) and len(trades) >= 24:
         span = max(1, trades[-1]["ts"] - trades[0]["ts"])
-        bucket = max(1, int(span / 60))
+        bucket = min(bucket_pedido, max(1, int(span / 60))) if necesita_finas \
+            else max(1, int(span / 60))
         synth = features.candles_from_trades(trades, bucket)
-        if len(synth) > len(candles):
+        if len(synth) >= 12 and (necesita_finas or len(synth) > len(candles)):
             candles = synth
             tf_min = bucket / 60.0
             tf_label = ("%ds*" % bucket) if bucket < 60 else ("%dm*" % (bucket // 60))
-            warn.append("Velas reconstruidas desde %d trades (bucket %ds): el token es "
-                        "demasiado nuevo para el historico de velas." % (len(trades), bucket))
+            warn.append("Velas reconstruidas desde %d trades en tramos de %ds: %s."
+                        % (len(trades), bucket,
+                           "el horizonte pedido es más corto que la vela más fina "
+                           "que publica la API" if necesita_finas
+                           else "el token es demasiado nuevo para el histórico"))
 
     stats = features.price_stats(candles)
     flow = features.flow_stats(trades, creator=coin.get("creator"), now=now)
@@ -140,12 +180,12 @@ def analyze(mint, horizon_h=6.0):
     span_h = (len(candles) * tf_min) / 60.0
     eff_h = horizon_h
     if span_h > 0:
-        eff_h = min(horizon_h, max(span_h * 3.0, 0.25))
+        eff_h = min(horizon_h, max(span_h * 3.0, 15.0 / 3600.0))
     clamped = eff_h < horizon_h * 0.98
     if clamped:
-        warn.append("Horizonte recortado de %.0fh a %s: solo hay %s de historico. "
+        warn.append("Horizonte recortado de %s a %s: solo hay %s de historico. "
                     "Pedir mas lejos seria inventar." % (
-                        horizon_h, _fmt_h(eff_h), _fmt_h(span_h)))
+                        _fmt_h(horizon_h), _fmt_h(eff_h), _fmt_h(span_h)))
 
     h_candles = max(1.0, (eff_h * 60.0) / tf_min)
     sigma = stats.get("sigma", 0.0)
